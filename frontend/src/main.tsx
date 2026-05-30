@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import './index.css';
 // @ts-expect-error — no types bundled
 import * as GS3D from '@mkkellogg/gaussian-splats-3d';
