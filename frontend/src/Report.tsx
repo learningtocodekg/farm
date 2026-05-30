@@ -3,8 +3,18 @@ import {
   ArrowLeft, Download, Activity, 
   Droplets, Thermometer, AlertCircle, Bot, Sparkles, CheckCircle2
 } from 'lucide-react';
+import reportData from './reportData.json';
 
 export default function Report() {
+  const { analyst, report, scores } = reportData;
+
+  const categoryConfig: Record<string, any> = {
+    moisture: { icon: <Droplets className="text-blue-400" />, color: 'bg-blue-400' },
+    nutrient: { icon: <CheckCircle2 className="text-emerald-400" />, color: 'bg-emerald-400' },
+    temperature: { icon: <Thermometer className="text-orange-400" />, color: 'bg-orange-400' },
+    weed: { icon: <AlertCircle className="text-rose-400" />, color: 'bg-rose-400' },
+  };
+
   return (
     <div className="absolute inset-0 bg-[#0a0b0d] overflow-y-auto pointer-events-auto z-50 text-white selection:bg-emerald-500/30">
       <div className="max-w-7xl mx-auto p-8 pt-12">
@@ -19,7 +29,9 @@ export default function Report() {
               <Bot className="w-8 h-8 text-emerald-400" />
               AI Farm Analysis Report
             </h1>
-            <p className="text-white/40 mt-2 font-mono text-sm">Generated: {new Date().toLocaleString()} • Analyst: AgrAI-7</p>
+            <p className="text-white/40 mt-2 font-mono text-sm">
+              Generated: {new Date().toLocaleString()} • Analyst: {analyst}
+            </p>
           </div>
           <div className="flex gap-3">
             <button className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30 text-sm font-medium transition-colors shadow-lg shadow-emerald-500/10">
@@ -44,36 +56,30 @@ export default function Report() {
               </h2>
               
               <div className="space-y-6 text-white/80 leading-relaxed font-serif text-lg">
-                <p>
-                  Based on the latest multispectral drone sweeps and ground sensor data collected over the last 24 hours, the overall farm ecosystem is performing optimally. The crop stress levels remain remarkably low across all active quadrants, and the nutrient absorption rate is currently peaking.
-                </p>
+                <p>{report.executiveSummary}</p>
                 
                 <h3 className="text-xl font-semibold text-white mt-8 mb-4">Soil Health & Moisture Profile</h3>
-                <p>
-                  We have observed a slight localized dip in soil moisture across <strong>Sector 4A</strong> and <strong>Sector 4B</strong>. This is likely correlated with the minor elevation change and recent intense solar radiation (peaking at 850 W/m² yesterday afternoon). 
-                </p>
+                <p>{report.soilHealth.description}</p>
                 <ul className="list-disc pl-6 space-y-2 mt-4 mb-6 text-white/70">
-                  <li><strong>pH Levels:</strong> Stable at 6.5 (Optimal range).</li>
-                  <li><strong>Nitrogen (N):</strong> 72% - Well within target parameters.</li>
-                  <li><strong>Potassium (K):</strong> 60% - Sufficient for current growth stage.</li>
+                  {report.soilHealth.metrics.map((metric, idx) => (
+                    <li key={idx}><strong>{metric.label}:</strong> {metric.value}</li>
+                  ))}
                 </ul>
 
                 <h3 className="text-xl font-semibold text-white mt-8 mb-4">Weed & Pest Analysis</h3>
                 <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-5 my-6 text-rose-200">
                   <p className="font-medium flex items-center gap-2 mb-2">
                     <AlertCircle className="w-5 h-5 text-rose-400" />
-                    Action Required: Pigweed Outbreak
+                    {report.weedAnalysis.threatTitle}
                   </p>
-                  <p className="text-sm opacity-90">
-                    Image recognition has positively identified small clusters of Pigweed emerging in Sector 4A. Given its aggressive growth rate, an automated targeted herbicide micro-spray is recommended within the next 48 hours to prevent seed dispersal.
-                  </p>
+                  <p className="text-sm opacity-90">{report.weedAnalysis.description}</p>
                 </div>
 
                 <h3 className="text-xl font-semibold text-white mt-8 mb-4">Recommendations</h3>
                 <ol className="list-decimal pl-6 space-y-3 text-white/70">
-                  <li>Increase automated drip irrigation frequency by 15% in Sector 4 to stabilize the moisture deficit.</li>
-                  <li>Dispatch targeted spray drones to Sector 4A to neutralize the detected Pigweed clusters.</li>
-                  <li>Maintain current NPK fertilization schedules; no immediate intervention required.</li>
+                  {report.recommendations.map((rec, idx) => (
+                    <li key={idx}>{rec}</li>
+                  ))}
                 </ol>
               </div>
             </div>
@@ -88,22 +94,29 @@ export default function Report() {
               </div>
               <h3 className="text-emerald-400 font-medium mb-2 uppercase tracking-widest text-xs">Overall Rating</h3>
               <div className="flex items-baseline gap-2 mb-4">
-                <span className="text-7xl font-bold text-white tracking-tighter">94</span>
-                <span className="text-2xl text-white/50">/100</span>
+                <span className="text-7xl font-bold text-white tracking-tighter">{scores.overall.value}</span>
+                <span className="text-2xl text-white/50">/{scores.overall.max}</span>
               </div>
               <div className="h-2 w-full bg-black/40 rounded-full overflow-hidden mb-4">
-                <div className="h-full bg-emerald-400 rounded-full" style={{ width: '94%' }} />
+                <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${(scores.overall.value / scores.overall.max) * 100}%` }} />
               </div>
-              <p className="text-emerald-200/80 text-sm">Farm health is in the top 5% of historical baselines for this season.</p>
+              <p className="text-emerald-200/80 text-sm">{scores.overall.description}</p>
             </div>
 
-            <RatingCard title="Moisture Index" score="82/100" icon={<Droplets className="text-blue-400" />} color="bg-blue-400" percentage={82} status="Good" />
-            
-            <RatingCard title="Nutrient Balance" score="96/100" icon={<CheckCircle2 className="text-emerald-400" />} color="bg-emerald-400" percentage={96} status="Excellent" />
-            
-            <RatingCard title="Temperature Stability" score="88/100" icon={<Thermometer className="text-orange-400" />} color="bg-orange-400" percentage={88} status="Optimal" />
-            
-            <RatingCard title="Weed Control" score="75/100" icon={<AlertCircle className="text-rose-400" />} color="bg-rose-400" percentage={75} status="Needs Attention" />
+            {scores.categories.map((cat) => {
+              const config = categoryConfig[cat.id] || { icon: <Activity className="text-white" />, color: 'bg-white' };
+              return (
+                <RatingCard 
+                  key={cat.id}
+                  title={cat.title} 
+                  score={`${cat.score}/${cat.max}`} 
+                  icon={config.icon} 
+                  color={config.color} 
+                  percentage={(cat.score / cat.max) * 100} 
+                  status={cat.status} 
+                />
+              );
+            })}
 
           </div>
         </div>
