@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@plugin "@tailwindcss/typography";
 
 *, *::before, *::after {
   box-sizing: border-box;
