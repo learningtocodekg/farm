@@ -51,7 +51,7 @@ export default function Report() {
               <Sparkles className="w-32 h-32 text-emerald-400" />
             </div>
             
-            <div className="prose prose-invert prose-emerald max-w-none">
+            <div className="prose prose-invert prose-emerald max-w-none prose-headings:font-semibold prose-h2:text-3xl prose-h2:text-white prose-h2:border-b prose-h2:border-white/10 prose-h2:pb-4 prose-h2:mb-8 prose-h3:text-xl prose-h3:text-emerald-300 prose-h3:mt-8 prose-h3:mb-4 prose-p:text-white/70 prose-p:leading-relaxed prose-ul:text-white/70 prose-ol:text-white/70 prose-li:marker:text-emerald-500 prose-strong:text-white prose-strong:font-semibold prose-blockquote:border-l-4 prose-blockquote:border-rose-500/50 prose-blockquote:bg-rose-500/10 prose-blockquote:px-6 prose-blockquote:py-4 prose-blockquote:rounded-r-2xl prose-blockquote:text-rose-200 prose-blockquote:not-italic prose-blockquote:my-8">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>
                 {markdownText}
               </ReactMarkdown>
