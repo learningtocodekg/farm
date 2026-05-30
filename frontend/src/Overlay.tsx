@@ -14,6 +14,9 @@ export default function Overlay() {
   const [cameraMode, setCameraMode] = useState<CameraMode>('perspective');
   const [showActionModal, setShowActionModal] = useState(false);
   const [selectedTreatment, setSelectedTreatment] = useState<string | null>(null);
+  const [showWeedModal, setShowWeedModal] = useState(false);
+  const [selectedWeed, setSelectedWeed] = useState<string | null>(null);
+  const [actionWeed, setActionWeed] = useState<string | null>(null);
 
   useEffect(() => {
     const onLoaded = () => setStatus('loaded');
@@ -118,23 +121,42 @@ export default function Overlay() {
           </DashboardCard>
 
           <DashboardCard title="Weed Identification" icon={<Scan className="w-5 h-5 text-rose-400" />}>
-            <div className="flex items-center justify-between p-4 rounded-xl bg-rose-500/15 border border-rose-400/35 shadow-sm hover:bg-rose-500/20 hover:border-rose-400/50 hover:scale-102 transition-all duration-200 group cursor-pointer">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-rose-500/25 rounded-lg group-hover:bg-rose-500/35 transition-colors">
-                  <ShieldAlert className="w-6 h-6 text-rose-400" />
+            <div className="space-y-3">
+              {/* Pigweed */}
+              <div className="flex items-center justify-between p-4 rounded-xl bg-rose-500/15 border border-rose-400/35 shadow-sm hover:bg-rose-500/20 hover:border-rose-400/50 hover:scale-102 transition-all duration-200 group cursor-pointer" onClick={() => { setSelectedWeed('pigweed'); setShowWeedModal(true); }}>
+                <div className="flex items-center gap-3 flex-1">
+                  <div className="p-2 bg-rose-500/25 rounded-lg group-hover:bg-rose-500/35 transition-colors">
+                    <ShieldAlert className="w-5 h-5 text-rose-400" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white/95">Pigweed</h4>
+                    <p className="text-xs text-rose-300/80 font-medium">Sector 4A • High Priority</p>
+                  </div>
                 </div>
-                <div>
-                  <h4 className="text-sm font-bold text-white/95">Pigweed Detected</h4>
-                  <p className="text-xs text-rose-300/80 font-medium">Sector 4A • High Priority</p>
-                </div>
+                <button onClick={(e) => { e.stopPropagation(); setActionWeed('pigweed'); setShowActionModal(true); setSelectedTreatment(null); }} className="px-3 py-2 rounded-lg bg-rose-500/30 text-rose-300 text-xs font-bold hover:bg-rose-500/45 hover:shadow-md hover:shadow-rose-500/20 hover:scale-105 transition-all duration-200 uppercase tracking-widest cursor-pointer focus:ring-2 focus:ring-rose-400 focus:outline-none">
+                  Action
+                </button>
               </div>
-              <button onClick={() => setShowActionModal(true)} className="px-3 py-2 rounded-lg bg-rose-500/30 text-rose-300 text-xs font-bold hover:bg-rose-500/45 hover:shadow-md hover:shadow-rose-500/20 hover:scale-105 transition-all duration-200 uppercase tracking-widest cursor-pointer focus:ring-2 focus:ring-rose-400 focus:outline-none">
-                Action
-              </button>
+
+              {/* Crabgrass */}
+              <div className="flex items-center justify-between p-4 rounded-xl bg-amber-500/15 border border-amber-400/35 shadow-sm hover:bg-amber-500/20 hover:border-amber-400/50 hover:scale-102 transition-all duration-200 group cursor-pointer" onClick={() => { setSelectedWeed('crabgrass'); setShowWeedModal(true); }}>
+                <div className="flex items-center gap-3 flex-1">
+                  <div className="p-2 bg-amber-500/25 rounded-lg group-hover:bg-amber-500/35 transition-colors">
+                    <ShieldAlert className="w-5 h-5 text-amber-400" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white/95">Crabgrass</h4>
+                    <p className="text-xs text-amber-300/80 font-medium">Sector 2B • Medium Priority</p>
+                  </div>
+                </div>
+                <button onClick={(e) => { e.stopPropagation(); setActionWeed('crabgrass'); setShowActionModal(true); setSelectedTreatment(null); }} className="px-3 py-2 rounded-lg bg-amber-500/30 text-amber-300 text-xs font-bold hover:bg-amber-500/45 hover:shadow-md hover:shadow-amber-500/20 hover:scale-105 transition-all duration-200 uppercase tracking-widest cursor-pointer focus:ring-2 focus:ring-amber-400 focus:outline-none">
+                  Action
+                </button>
+              </div>
             </div>
             <div className="flex items-center justify-between text-xs pt-3 border-t border-white/8">
               <span className="text-white/70 font-medium">Total Threats</span>
-              <span className="text-white/90 font-bold tabular-nums">3 Active</span>
+              <span className="text-white/90 font-bold tabular-nums">2 Active</span>
             </div>
           </DashboardCard>
 
@@ -186,12 +208,25 @@ export default function Overlay() {
       {/* Action Modal */}
       {showActionModal && (
         <WeedActionModal
+          weedType={actionWeed}
           onClose={() => {
             setShowActionModal(false);
             setSelectedTreatment(null);
+            setActionWeed(null);
           }}
           onSelectTreatment={setSelectedTreatment}
           selectedTreatment={selectedTreatment}
+        />
+      )}
+
+      {/* Weed Info Modal */}
+      {showWeedModal && (
+        <WeedInfoModal
+          weedType={selectedWeed}
+          onClose={() => {
+            setShowWeedModal(false);
+            setSelectedWeed(null);
+          }}
         />
       )}
     </div>
@@ -356,6 +391,126 @@ function WeatherForecast({ type }: { type: 'temperature' | 'precipitation' }) {
   );
 }
 
+function WeedInfoModal({ weedType, onClose }: { weedType: string | null; onClose: () => void }) {
+  const weedDatabase: Record<string, any> = {
+    pigweed: {
+      name: 'Amaranthus retroflexus (Redroot Pigweed)',
+      priority: 'High',
+      sector: '4A',
+      description: 'A summer annual broadleaf weed that grows rapidly and competes aggressively with crops for nutrients and water. Recognized by its distinctive red/purple root system and ability to produce thousands of seeds.',
+      characteristics: [
+        'Grows 3-6 feet tall',
+        'Deep red/purple root system',
+        'Small flowers in terminal spikes',
+        'Produces thousands of seeds',
+        'Highly variable leaf size',
+      ],
+      imageUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0f/Amaranthus_retroflexus_-_Redroot_Pigweed.jpg/600px-Amaranthus_retroflexus_-_Redroot_Pigweed.jpg',
+      fallbackEmoji: '🌱',
+      impact: 'Can reduce crop yields by 10-40% if left uncontrolled',
+      season: 'Late Spring to Fall',
+    },
+    crabgrass: {
+      name: 'Digitaria sanguinalis (Large Crabgrass)',
+      priority: 'Medium',
+      sector: '2B',
+      description: 'A summer annual grass weed that germinates when soil temperatures reach 55-60°F. Spreads via stolons and root nodes, forming distinctive circular mats. Very competitive with young crops.',
+      characteristics: [
+        'Grows in circular mats',
+        'Star-like seed head with 3-6 spikes',
+        'Yellow-green foliage',
+        'Root nodes that initiate new plants',
+        'Faster growing than corn',
+      ],
+      imageUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f0/Digitaria_sanguinalis_-_Crabgrass.jpg/600px-Digitaria_sanguinalis_-_Crabgrass.jpg',
+      fallbackEmoji: '🌾',
+      impact: 'Competes heavily during early crop growth stages',
+      season: 'Spring to Summer',
+    },
+  };
+
+  const weed = weedDatabase[weedType || 'pigweed'];
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center pointer-events-auto z-50">
+      <div className="bg-black/80 border border-white/20 rounded-3xl p-8 max-w-3xl w-full mx-4 shadow-2xl shadow-black/80">
+        {/* Close Button */}
+        <button
+          onClick={onClose}
+          className="absolute top-6 right-6 text-white/50 hover:text-white/80 text-2xl cursor-pointer transition-colors"
+        >
+          ✕
+        </button>
+
+        {/* Header */}
+        <div className="mb-6">
+          <div className="flex items-center gap-3 mb-3">
+            <span className="text-4xl">{weed.fallbackEmoji}</span>
+            <div>
+              <h2 className="text-2xl font-bold text-white/95">{weed.name}</h2>
+              <p className="text-sm text-white/60">Sector {weed.sector} • {weed.priority} Priority</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Image Section */}
+        <div className="mb-6 rounded-2xl overflow-hidden border border-white/10 bg-black/40 h-64">
+          <img
+            src={weed.imageUrl}
+            alt={weed.name}
+            className="w-full h-full object-cover"
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
+          />
+        </div>
+
+        {/* Description */}
+        <div className="mb-6 p-4 rounded-xl bg-white/5 border border-white/10">
+          <p className="text-white/80 text-sm leading-relaxed">{weed.description}</p>
+        </div>
+
+        {/* Characteristics Grid */}
+        <div className="mb-6">
+          <h3 className="text-xs font-bold text-white/70 uppercase tracking-wider mb-3">Key Characteristics</h3>
+          <div className="grid grid-cols-2 gap-2">
+            {weed.characteristics.map((char: string, idx: number) => (
+              <div key={idx} className="flex items-start gap-2 p-2 rounded-lg bg-white/5 border border-white/10">
+                <span className="text-emerald-400 mt-0.5">✓</span>
+                <span className="text-xs text-white/80">{char}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Info Grid */}
+        <div className="grid grid-cols-3 gap-3 mb-6">
+          <div className="p-3 rounded-xl bg-white/5 border border-white/10">
+            <p className="text-xs text-white/60 uppercase tracking-wider font-bold mb-1">Impact</p>
+            <p className="text-xs text-white/85">{weed.impact}</p>
+          </div>
+          <div className="p-3 rounded-xl bg-white/5 border border-white/10">
+            <p className="text-xs text-white/60 uppercase tracking-wider font-bold mb-1">Season</p>
+            <p className="text-xs text-white/85">{weed.season}</p>
+          </div>
+          <div className="p-3 rounded-xl bg-white/5 border border-white/10">
+            <p className="text-xs text-white/60 uppercase tracking-wider font-bold mb-1">Status</p>
+            <p className="text-xs text-rose-400 font-bold">Active Threat</p>
+          </div>
+        </div>
+
+        {/* Action Button */}
+        <button
+          onClick={onClose}
+          className="w-full px-4 py-3 rounded-xl bg-emerald-500/40 border border-emerald-400/50 text-emerald-300 font-bold hover:bg-emerald-500/50 hover:shadow-lg hover:shadow-emerald-500/20 transition-all duration-200 uppercase tracking-widest cursor-pointer"
+        >
+          Close & Review Treatments
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function TreatmentOption({ id, title, description, icon, onSelect, isSelected }: any) {
   return (
     <button
@@ -380,11 +535,18 @@ function TreatmentOption({ id, title, description, icon, onSelect, isSelected }:
   );
 }
 
-function WeedActionModal({ onClose, onSelectTreatment, selectedTreatment }: any) {
+function WeedActionModal({ weedType, onClose, onSelectTreatment, selectedTreatment }: any) {
+  const weedInfo: Record<string, any> = {
+    pigweed: { name: 'Pigweed', sector: '4A' },
+    crabgrass: { name: 'Crabgrass', sector: '2B' },
+  };
+
+  const weed = weedInfo[weedType || 'pigweed'];
+
   const handleExecute = () => {
     if (selectedTreatment) {
       onClose();
-      alert(`🤖 Robot assigned to execute: ${selectedTreatment}\n\nThe autonomous agricultural robot is en route to Sector 4A and will begin treatment shortly.`);
+      alert(`🤖 Robot assigned to execute: ${selectedTreatment}\n\nThe autonomous agricultural robot is en route to Sector ${weed.sector} and will begin ${weed.name} treatment shortly.`);
     }
   };
 
@@ -394,8 +556,8 @@ function WeedActionModal({ onClose, onSelectTreatment, selectedTreatment }: any)
         {/* Header */}
         <div className="flex items-start justify-between mb-6">
           <div>
-            <h2 className="text-2xl font-bold text-white/95">Pigweed Treatment Options</h2>
-            <p className="text-sm text-white/60 mt-2">Sector 4A • Select treatment method for deployment</p>
+            <h2 className="text-2xl font-bold text-white/95">{weed.name} Treatment Options</h2>
+            <p className="text-sm text-white/60 mt-2">Sector {weed.sector} • Select treatment method for deployment</p>
           </div>
           <button
             onClick={onClose}
