@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import { 
   Droplets, Thermometer, Wind, Sun, 
   Beaker, CloudRain, ShieldAlert,
-  Compass, Gauge, Scan, Sprout, FileText
+  Compass, Gauge, Scan, Sprout, FileText,
+  Bot, Sparkles, Send, User
 } from 'lucide-react';
 
 type SplatStatus = 'loading' | 'loaded' | 'error';
@@ -97,10 +98,10 @@ export default function Overlay() {
       </div>
 
       {/* Main Dashboard Layout */}
-      <div className="flex-1 flex justify-between items-start mt-6 w-full pointer-events-none px-6">
+      <div className="flex-1 flex justify-between items-start mt-6 w-full pointer-events-none px-6 overflow-hidden gap-6 pb-6">
 
-        {/* Left Panel: Soil Health & Weed ID */}
-        <div className="w-[420px] flex flex-col gap-6 pointer-events-auto">
+        {/* Left Panel: Farm UI */}
+        <div className="w-[420px] flex flex-col gap-6 pointer-events-auto h-full overflow-y-auto pr-2 pb-4 scroll-smooth shrink-0" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
           
           <DashboardCard title="Soil Health Analytics" icon={<Beaker className="w-5 h-5 text-emerald-400" />}>
             <MetricRow label="pH Level" value="6.5" unit="Optimal" icon={<Gauge className="w-4 h-4 text-emerald-400/70" />} progress={65} color="bg-emerald-500" />
@@ -160,10 +161,7 @@ export default function Overlay() {
             </div>
           </DashboardCard>
 
-        </div>
-
-        {/* Right Panel: Environmental Sensors */}
-        <div className="w-[420px] flex flex-col gap-6 pointer-events-auto">
+          {/* Environmental Sensors */}
           
           <DashboardCard title="Ambient Conditions" icon={<Sun className="w-5 h-5 text-amber-400" />}>
             <div className="grid grid-cols-2 gap-3 mb-6">
@@ -200,10 +198,12 @@ export default function Overlay() {
           </DashboardCard>
 
         </div>
+
+        {/* Right Panel: Gemini Chatbot */}
+        <div className="w-[420px] h-full pointer-events-auto shrink-0 flex flex-col">
+          <GeminiChatbot />
+        </div>
       </div>
-      
-      {/* Bottom bar if needed, otherwise just space */}
-      <div className="h-12" />
 
       {/* Action Modal */}
       {showActionModal && (
@@ -632,6 +632,79 @@ function WeedActionModal({ weedType, onClose, onSelectTreatment, selectedTreatme
             }`}
           >
             🤖 Deploy Robot
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GeminiChatbot() {
+  const [messages, setMessages] = useState([
+    { role: 'assistant', text: 'Hello! I am Gemini, your Farm AI Assistant. How can I help you manage your crops today?' }
+  ]);
+  const [input, setInput] = useState('');
+
+  const handleSend = () => {
+    if (!input.trim()) return;
+    setMessages(prev => [...prev, { role: 'user', text: input }]);
+    setInput('');
+    setTimeout(() => {
+      setMessages(prev => [...prev, { role: 'assistant', text: 'I am analyzing your request and cross-referencing with our agricultural database...' }]);
+    }, 1000);
+  };
+
+  return (
+    <div className="flex flex-col h-full rounded-2xl bg-black/40 backdrop-blur-xl border border-white/15 shadow-2xl shadow-black/50 overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-3 p-4 border-b border-white/15 bg-black/40">
+        <div className="p-2.5 rounded-lg bg-blue-500/20 border border-blue-400/30 shadow-inner">
+          <Sparkles className="w-5 h-5 text-blue-400" />
+        </div>
+        <div>
+          <h3 className="text-sm font-bold text-white/95 tracking-wide uppercase flex items-center gap-2">
+            Gemini AI <span className="px-1.5 py-0.5 rounded-md bg-blue-500/20 text-blue-300 text-[10px] font-bold">PRO</span>
+          </h3>
+          <p className="text-xs text-white/60">Farm Operations Assistant</p>
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+        {messages.map((msg, i) => (
+          <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-[85%] rounded-2xl p-3.5 text-sm leading-relaxed shadow-sm ${
+              msg.role === 'user' 
+                ? 'bg-blue-500/20 border border-blue-400/30 text-white/95 rounded-tr-sm' 
+                : 'bg-white/10 border border-white/15 text-white/90 rounded-tl-sm'
+            }`}>
+              {msg.text}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Input */}
+      <div className="p-4 border-t border-white/15 bg-black/40">
+        <div className="flex gap-2">
+          <input 
+            type="text" 
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+            placeholder="Ask Gemini about your farm..."
+            className="flex-1 bg-black/50 border border-white/15 rounded-xl px-4 py-3 text-sm text-white/90 focus:outline-none focus:border-blue-400/50 focus:ring-1 focus:ring-blue-400/50 placeholder:text-white/40 transition-all shadow-inner"
+          />
+          <button 
+            onClick={handleSend}
+            disabled={!input.trim()}
+            className={`p-3 rounded-xl border transition-all duration-200 focus:outline-none flex items-center justify-center shadow-md ${
+              input.trim() 
+                ? 'bg-blue-500/25 border-blue-400/40 text-blue-400 hover:bg-blue-500/40 hover:border-blue-400/60 hover:scale-105 cursor-pointer hover:shadow-blue-500/20' 
+                : 'bg-black/40 border-white/10 text-white/20 cursor-not-allowed'
+            }`}
+          >
+            <Send className="w-5 h-5 ml-0.5" />
           </button>
         </div>
       </div>
