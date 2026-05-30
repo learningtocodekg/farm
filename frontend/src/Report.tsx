@@ -3,10 +3,12 @@ import {
   ArrowLeft, Download, Activity, 
   Droplets, Thermometer, AlertCircle, Bot, Sparkles, CheckCircle2
 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import reportData from './reportData.json';
 
 export default function Report() {
-  const { analyst, report, scores } = reportData;
+  const { analyst, markdownText, scores } = reportData;
 
   const categoryConfig: Record<string, any> = {
     moisture: { icon: <Droplets className="text-blue-400" />, color: 'bg-blue-400' },
@@ -50,38 +52,9 @@ export default function Report() {
             </div>
             
             <div className="prose prose-invert prose-emerald max-w-none">
-              <h2 className="text-2xl font-semibold text-emerald-400 mb-6 flex items-center gap-2 border-b border-white/10 pb-4">
-                <Sparkles className="w-5 h-5" />
-                Executive Summary
-              </h2>
-              
-              <div className="space-y-6 text-white/80 leading-relaxed font-serif text-lg">
-                <p>{report.executiveSummary}</p>
-                
-                <h3 className="text-xl font-semibold text-white mt-8 mb-4">Soil Health & Moisture Profile</h3>
-                <p>{report.soilHealth.description}</p>
-                <ul className="list-disc pl-6 space-y-2 mt-4 mb-6 text-white/70">
-                  {report.soilHealth.metrics.map((metric, idx) => (
-                    <li key={idx}><strong>{metric.label}:</strong> {metric.value}</li>
-                  ))}
-                </ul>
-
-                <h3 className="text-xl font-semibold text-white mt-8 mb-4">Weed & Pest Analysis</h3>
-                <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-5 my-6 text-rose-200">
-                  <p className="font-medium flex items-center gap-2 mb-2">
-                    <AlertCircle className="w-5 h-5 text-rose-400" />
-                    {report.weedAnalysis.threatTitle}
-                  </p>
-                  <p className="text-sm opacity-90">{report.weedAnalysis.description}</p>
-                </div>
-
-                <h3 className="text-xl font-semibold text-white mt-8 mb-4">Recommendations</h3>
-                <ol className="list-decimal pl-6 space-y-3 text-white/70">
-                  {report.recommendations.map((rec, idx) => (
-                    <li key={idx}>{rec}</li>
-                  ))}
-                </ol>
-              </div>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {markdownText}
+              </ReactMarkdown>
             </div>
           </div>
 

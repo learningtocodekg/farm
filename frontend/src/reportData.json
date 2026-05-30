@@ -1,26 +1,7 @@
 {
   "analyst": "AgrAI-7",
   "generatedAt": "2026-05-30T12:00:00Z",
-  "report": {
-    "executiveSummary": "Based on the latest multispectral drone sweeps and ground sensor data collected over the last 24 hours, the overall farm ecosystem is performing optimally. The crop stress levels remain remarkably low across all active quadrants, and the nutrient absorption rate is currently peaking.",
-    "soilHealth": {
-      "description": "We have observed a slight localized dip in soil moisture across Sector 4A and Sector 4B. This is likely correlated with the minor elevation change and recent intense solar radiation (peaking at 850 W/m² yesterday afternoon).",
-      "metrics": [
-        { "label": "pH Levels", "value": "Stable at 6.5 (Optimal range)." },
-        { "label": "Nitrogen (N)", "value": "72% - Well within target parameters." },
-        { "label": "Potassium (K)", "value": "60% - Sufficient for current growth stage." }
-      ]
-    },
-    "weedAnalysis": {
-      "threatTitle": "Action Required: Pigweed Outbreak",
-      "description": "Image recognition has positively identified small clusters of Pigweed emerging in Sector 4A. Given its aggressive growth rate, an automated targeted herbicide micro-spray is recommended within the next 48 hours to prevent seed dispersal."
-    },
-    "recommendations": [
-      "Increase automated drip irrigation frequency by 15% in Sector 4 to stabilize the moisture deficit.",
-      "Dispatch targeted spray drones to Sector 4A to neutralize the detected Pigweed clusters.",
-      "Maintain current NPK fertilization schedules; no immediate intervention required."
-    ]
-  },
+  "markdownText": "## ✨ Executive Summary\n\nBased on the latest multispectral drone sweeps and ground sensor data collected over the last 24 hours, the overall farm ecosystem is performing optimally. The crop stress levels remain remarkably low across all active quadrants, and the nutrient absorption rate is currently peaking.\n\n### Soil Health & Moisture Profile\n\nWe have observed a slight localized dip in soil moisture across **Sector 4A** and **Sector 4B**. This is likely correlated with the minor elevation change and recent intense solar radiation (peaking at 850 W/m² yesterday afternoon).\n\n- **pH Levels:** Stable at 6.5 (Optimal range).\n- **Nitrogen (N):** 72% - Well within target parameters.\n- **Potassium (K):** 60% - Sufficient for current growth stage.\n\n### Weed & Pest Analysis\n\n> **⚠️ Action Required: Pigweed Outbreak**\n> \n> Image recognition has positively identified small clusters of Pigweed emerging in Sector 4A. Given its aggressive growth rate, an automated targeted herbicide micro-spray is recommended within the next 48 hours to prevent seed dispersal.\n\n### Recommendations\n\n1. Increase automated drip irrigation frequency by 15% in Sector 4 to stabilize the moisture deficit.\n2. Dispatch targeted spray drones to Sector 4A to neutralize the detected Pigweed clusters.\n3. Maintain current NPK fertilization schedules; no immediate intervention required.",
   "scores": {
     "overall": {
       "value": 94,
