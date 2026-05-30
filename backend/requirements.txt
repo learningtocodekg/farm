@@ -1,2 +1,5 @@
 fastapi
 uvicorn[standard]
+httpx
+python-multipart
+google-adk
