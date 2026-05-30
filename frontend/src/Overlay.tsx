@@ -4,7 +4,7 @@ import {
   Droplets, Thermometer, Wind, Sun, 
   Beaker, CloudRain, ShieldAlert,
   Compass, Gauge, Scan, Sprout, FileText,
-  Bot, Sparkles, Send, User
+  Sparkles, Send, ChevronDown, ChevronUp
 } from 'lucide-react';
 
 type SplatStatus = 'loading' | 'loaded' | 'error';
@@ -236,17 +236,29 @@ export default function Overlay() {
 // --- Subcomponents ---
 
 function DashboardCard({ title, icon, children }: { title: string, icon: React.ReactNode, children: React.ReactNode }) {
+  const [isExpanded, setIsExpanded] = useState(true);
+
   return (
     <div className="rounded-2xl bg-black/40 backdrop-blur-xl border border-white/15 p-6 shadow-2xl shadow-black/50 transition-all duration-300 hover:bg-black/50 hover:border-white/25 hover:shadow-2xl hover:shadow-emerald-500/10 hover:scale-101 focus-within:ring-2 focus-within:ring-emerald-500/50">
-      <div className="flex items-center gap-3 mb-5 pb-3 border-b border-white/8">
-        <div className="p-2.5 rounded-lg bg-white/8 border border-white/10 shadow-sm">
-          {icon}
+      <div 
+        className={`flex items-center justify-between gap-3 ${isExpanded ? 'mb-5 pb-3 border-b border-white/8' : ''} cursor-pointer select-none`}
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-lg bg-white/8 border border-white/10 shadow-sm">
+            {icon}
+          </div>
+          <h3 className="text-sm font-bold text-white/95 tracking-wide uppercase">{title}</h3>
         </div>
-        <h3 className="text-sm font-bold text-white/95 tracking-wide uppercase">{title}</h3>
+        <button className="text-white/50 hover:text-white/90 transition-colors p-1 rounded-md hover:bg-white/10">
+          {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
       </div>
-      <div className="space-y-3">
-        {children}
-      </div>
+      {isExpanded && (
+        <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
+          {children}
+        </div>
+      )}
     </div>
   );
 }
