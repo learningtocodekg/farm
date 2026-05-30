@@ -7,6 +7,10 @@ import httpx
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from farm_agent import router as agent_router
+from farm_ops_agent import router as ops_router
+from farm_robot_agent import router as robot_router
+
 app = FastAPI(title="Farm Analysis API")
 
 app.add_middleware(
@@ -15,6 +19,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount the ADK-powered farm research agent
+app.include_router(agent_router, prefix="/api/agent")
+
+# Mount the ADK-powered pull-only operations agent
+app.include_router(ops_router, prefix="/api/ops-agent")
+
+# Mount the ADK-powered hardware robot agent
+app.include_router(robot_router, prefix="/api/robot")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_URL = (
