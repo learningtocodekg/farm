@@ -1,39 +1,33 @@
 import { Link } from 'react-router-dom';
-import { 
-  ArrowLeft, Download, Activity, 
-  Droplets, Thermometer, AlertCircle, Bot, Sparkles, CheckCircle2
+import {
+  ArrowLeft, FileText, Download, Activity,
+  Droplets, Thermometer, AlertCircle, CheckCircle2, TrendingUp
 } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import reportData from './reportData.json';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+
+const temperatureData = [
+  { time: '00:00', temp: 18.2 },
+  { time: '04:00', temp: 17.5 },
+  { time: '08:00', temp: 20.1 },
+  { time: '12:00', temp: 24.5 },
+  { time: '16:00', temp: 25.2 },
+  { time: '20:00', temp: 21.0 },
+  { time: '24:00', temp: 18.8 },
+];
 
 export default function Report() {
-  const { analyst, markdownText, scores } = reportData;
-
-  const categoryConfig: Record<string, any> = {
-    moisture: { icon: <Droplets className="text-blue-400" />, color: 'bg-blue-400' },
-    nutrient: { icon: <CheckCircle2 className="text-emerald-400" />, color: 'bg-emerald-400' },
-    temperature: { icon: <Thermometer className="text-orange-400" />, color: 'bg-orange-400' },
-    weed: { icon: <AlertCircle className="text-rose-400" />, color: 'bg-rose-400' },
-  };
-
   return (
     <div className="absolute inset-0 bg-[#0a0b0d] overflow-y-auto pointer-events-auto z-50 text-white selection:bg-emerald-500/30">
-      <div className="max-w-7xl mx-auto p-8 pt-12">
+      <div className="max-w-6xl mx-auto p-8 pt-12">
         {/* Header */}
-        <div className="flex items-center justify-between mb-8 border-b border-white/10 pb-6">
+        <div className="flex items-center justify-between mb-12">
           <div>
             <Link to="/" className="inline-flex items-center gap-2 text-white/50 hover:text-white mb-4 transition-colors">
               <ArrowLeft className="w-4 h-4" />
               <span className="text-sm font-medium tracking-wide">Back to Dashboard</span>
             </Link>
-            <h1 className="text-4xl font-semibold tracking-tight flex items-center gap-3">
-              <Bot className="w-8 h-8 text-emerald-400" />
-              AI Farm Analysis Report
-            </h1>
-            <p className="text-white/40 mt-2 font-mono text-sm">
-              Generated: {new Date().toLocaleString()} • Analyst: {analyst}
-            </p>
+            <h1 className="text-4xl font-semibold tracking-tight">Comprehensive Farm Report</h1>
+            <p className="text-white/40 mt-2 font-mono text-sm">Generated: {new Date().toLocaleDateString()} • Sector: All Areas</p>
           </div>
           <div className="flex gap-3">
             <button className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30 text-sm font-medium transition-colors shadow-lg shadow-emerald-500/10">
@@ -43,80 +37,141 @@ export default function Report() {
           </div>
         </div>
 
-        <div className="flex gap-8 items-start">
-          
-          {/* Left Column: AI Text Document / Markdown */}
-          <div className="flex-1 bg-white/5 rounded-3xl p-10 border border-white/10 shadow-2xl relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-6 opacity-10 pointer-events-none">
-              <Sparkles className="w-32 h-32 text-emerald-400" />
+        {/* Executive Summary */}
+        <div className="grid grid-cols-4 gap-6 mb-12">
+          <SummaryCard title="Overall Health Score" value="94/100" icon={<Activity className="text-emerald-400" />} trend="+2.5%" positive />
+          <SummaryCard title="Soil Moisture Avg" value="44%" icon={<Droplets className="text-blue-400" />} trend="-1.2%" positive={false} />
+          <SummaryCard title="Temperature Avg" value="21.4°C" icon={<Thermometer className="text-orange-400" />} trend="+0.8°C" positive />
+          <SummaryCard title="Active Threats" value="3" icon={<AlertCircle className="text-rose-400" />} trend="-2" positive />
+        </div>
+
+        {/* Charts & Details Section */}
+        <div className="grid grid-cols-3 gap-6 mb-12">
+          {/* Temperature Trend */}
+          <div className="col-span-2 bg-white/5 rounded-3xl p-6 border border-white/10 shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="font-semibold text-lg flex items-center gap-2">
+                <TrendingUp className="w-5 h-5 text-emerald-400" />
+                24h Temperature Trend
+              </h3>
             </div>
-            
-            <div className="prose prose-invert prose-emerald max-w-none prose-headings:font-semibold prose-h2:text-3xl prose-h2:text-white prose-h2:border-b prose-h2:border-white/10 prose-h2:pb-4 prose-h2:mb-8 prose-h3:text-xl prose-h3:text-emerald-300 prose-h3:mt-8 prose-h3:mb-4 prose-p:text-white/70 prose-p:leading-relaxed prose-ul:text-white/70 prose-ol:text-white/70 prose-li:marker:text-emerald-500 prose-strong:text-white prose-strong:font-semibold prose-blockquote:border-l-4 prose-blockquote:border-rose-500/50 prose-blockquote:bg-rose-500/10 prose-blockquote:px-6 prose-blockquote:py-4 prose-blockquote:rounded-r-2xl prose-blockquote:text-rose-200 prose-blockquote:not-italic prose-blockquote:my-8">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {markdownText}
-              </ReactMarkdown>
+            <div className="h-72 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={temperatureData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorTemp" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#f97316" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="#f97316" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" vertical={false} />
+                  <XAxis dataKey="time" stroke="#ffffff50" tick={{ fill: '#ffffff50', fontSize: 12 }} axisLine={false} tickLine={false} />
+                  <YAxis stroke="#ffffff50" tick={{ fill: '#ffffff50', fontSize: 12 }} axisLine={false} tickLine={false} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#0a0b0d', borderColor: '#ffffff20', borderRadius: '12px' }}
+                    itemStyle={{ color: '#f97316' }}
+                  />
+                  <Area type="monotone" dataKey="temp" stroke="#f97316" strokeWidth={3} fillOpacity={1} fill="url(#colorTemp)" />
+                </AreaChart>
+              </ResponsiveContainer>
             </div>
           </div>
 
-          {/* Right Column: Scores & Ratings */}
-          <div className="w-96 flex flex-col gap-6 shrink-0">
-            
-            <div className="bg-gradient-to-br from-emerald-500/20 to-emerald-900/20 rounded-3xl p-8 border border-emerald-500/30 shadow-2xl relative overflow-hidden group">
-              <div className="absolute -bottom-8 -right-8 opacity-10 group-hover:opacity-20 transition-opacity blur-2xl transform scale-150">
-                <Activity className="w-64 h-64 text-emerald-400" />
-              </div>
-              <h3 className="text-emerald-400 font-medium mb-2 uppercase tracking-widest text-xs">Overall Rating</h3>
-              <div className="flex items-baseline gap-2 mb-4">
-                <span className="text-7xl font-bold text-white tracking-tighter">{scores.overall.value}</span>
-                <span className="text-2xl text-white/50">/{scores.overall.max}</span>
-              </div>
-              <div className="h-2 w-full bg-black/40 rounded-full overflow-hidden mb-4">
-                <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${(scores.overall.value / scores.overall.max) * 100}%` }} />
-              </div>
-              <p className="text-emerald-200/80 text-sm">{scores.overall.description}</p>
+          {/* Weed Threats List */}
+          <div className="col-span-1 bg-white/5 rounded-3xl p-6 border border-white/10 shadow-2xl flex flex-col">
+            <h3 className="font-semibold text-lg flex items-center gap-2 mb-6">
+              <AlertCircle className="w-5 h-5 text-rose-400" />
+              Recent Threats Detected
+            </h3>
+            <div className="flex-1 overflow-y-auto pr-2 space-y-4">
+              <ThreatItem name="Pigweed" sector="4A" time="2h ago" status="Critical" color="text-rose-400" bg="bg-rose-500/10" border="border-rose-500/20" />
+              <ThreatItem name="Crabgrass" sector="2B" time="5h ago" status="Moderate" color="text-amber-400" bg="bg-amber-500/10" border="border-amber-500/20" />
+              <ThreatItem name="Bindweed" sector="7C" time="1d ago" status="Resolved" color="text-emerald-400" bg="bg-emerald-500/10" border="border-emerald-500/20" icon={<CheckCircle2 className="w-4 h-4 text-emerald-400" />} />
             </div>
-
-            {scores.categories.map((cat) => {
-              const config = categoryConfig[cat.id] || { icon: <Activity className="text-white" />, color: 'bg-white' };
-              return (
-                <RatingCard 
-                  key={cat.id}
-                  title={cat.title} 
-                  score={`${cat.score}/${cat.max}`} 
-                  icon={config.icon} 
-                  color={config.color} 
-                  percentage={(cat.score / cat.max) * 100} 
-                  status={cat.status} 
-                />
-              );
-            })}
-
           </div>
         </div>
+
+        {/* Detailed Logs Table */}
+        <div className="bg-white/5 rounded-3xl p-6 border border-white/10 shadow-2xl">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="font-semibold text-lg flex items-center gap-2">
+              <FileText className="w-5 h-5 text-blue-400" />
+              Detailed Action Logs
+            </h3>
+          </div>
+          <div className="overflow-hidden rounded-xl border border-white/10">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-white/5 text-white/50 text-xs uppercase tracking-wider font-mono">
+                <tr>
+                  <th className="p-4 font-medium">Timestamp</th>
+                  <th className="p-4 font-medium">Action type</th>
+                  <th className="p-4 font-medium">Sector</th>
+                  <th className="p-4 font-medium">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                <tr className="hover:bg-white/5 transition-colors">
+                  <td className="p-4 text-white/80 font-mono">2026-05-30 09:14</td>
+                  <td className="p-4 text-white">Automated Irrigation</td>
+                  <td className="p-4 text-white/60">Sector 1-3</td>
+                  <td className="p-4 text-emerald-400">Completed</td>
+                </tr>
+                <tr className="hover:bg-white/5 transition-colors">
+                  <td className="p-4 text-white/80 font-mono">2026-05-30 08:30</td>
+                  <td className="p-4 text-white">Drone Sweep (Multispectral)</td>
+                  <td className="p-4 text-white/60">All Sectors</td>
+                  <td className="p-4 text-emerald-400">Completed</td>
+                </tr>
+                <tr className="hover:bg-white/5 transition-colors">
+                  <td className="p-4 text-white/80 font-mono">2026-05-29 16:45</td>
+                  <td className="p-4 text-white">Fertilizer Application (N)</td>
+                  <td className="p-4 text-white/60">Sector 4A</td>
+                  <td className="p-4 text-amber-400">Pending Weather</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
       </div>
     </div>
   );
 }
 
-function RatingCard({ title, score, icon, color, percentage, status }: any) {
+function SummaryCard({ title, value, icon, trend, positive }: any) {
   return (
-    <div className="bg-white/5 rounded-2xl p-6 border border-white/10 shadow-xl hover:bg-white/10 transition-colors">
-      <div className="flex justify-between items-center mb-4">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-black/40 rounded-xl border border-white/5 shadow-inner">
-            {icon}
-          </div>
-          <div>
-            <h4 className="text-sm font-medium text-white/90">{title}</h4>
-            <p className="text-xs text-white/50">{status}</p>
-          </div>
-        </div>
-        <span className="text-xl font-bold">{score}</span>
+    <div className="bg-white/5 rounded-3xl p-6 border border-white/10 shadow-xl relative overflow-hidden group hover:border-white/20 transition-all">
+      <div className="flex justify-between items-start mb-4 relative z-10">
+        <div className="p-3 bg-white/5 rounded-2xl border border-white/10">{icon}</div>
+        <span className={`text-xs font-medium px-2 py-1 rounded-lg border ${positive ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' : 'text-amber-400 bg-amber-500/10 border-amber-500/20'}`}>
+          {trend}
+        </span>
       </div>
-      <div className="h-1.5 w-full bg-black/40 rounded-full overflow-hidden">
-        <div className={`h-full ${color} rounded-full`} style={{ width: `${percentage}%` }} />
+      <div className="relative z-10">
+        <p className="text-white/50 text-sm mb-1">{title}</p>
+        <p className="text-3xl font-semibold tracking-tight">{value}</p>
+      </div>
+      <div className="absolute -bottom-8 -right-8 opacity-5 group-hover:opacity-10 transition-opacity blur-2xl transform scale-150">
+        {icon}
       </div>
     </div>
   );
 }
 
+function ThreatItem({ name, sector, time, status, color, bg, border, icon }: any) {
+  return (
+    <div className={`p-4 rounded-2xl border ${border} ${bg} flex items-center justify-between`}>
+      <div className="flex items-center gap-3">
+        {icon || <AlertCircle className={`w-5 h-5 ${color}`} />}
+        <div>
+          <p className="font-medium text-sm text-white/90">{name}</p>
+          <p className="text-xs text-white/50">Sector {sector}</p>
+        </div>
+      </div>
+      <div className="text-right">
+        <p className={`text-xs font-semibold ${color}`}>{status}</p>
+        <p className="text-xs text-white/40 font-mono mt-0.5">{time}</p>
+      </div>
+    </div>
+  );
+}

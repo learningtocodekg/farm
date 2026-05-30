@@ -1,23 +1,19 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { 
-  Droplets, Thermometer, Wind, Sun, 
+import {
+  Droplets, Thermometer, Wind, Sun,
   Beaker, CloudRain, ShieldAlert,
   Compass, Gauge, Scan, Sprout, FileText,
   Sparkles, Send, ChevronDown, ChevronUp
 } from 'lucide-react';
+import farmBackground from './assets/images/farmbackground.png';
 
 type SplatStatus = 'loading' | 'loaded' | 'error';
-type CameraMode = 'perspective' | 'topdown';
 
 export default function Overlay() {
   const [status, setStatus] = useState<SplatStatus>('loading');
-  const [cameraMode, setCameraMode] = useState<CameraMode>('perspective');
-  const [showActionModal, setShowActionModal] = useState(false);
-  const [selectedTreatment, setSelectedTreatment] = useState<string | null>(null);
   const [showWeedModal, setShowWeedModal] = useState(false);
   const [selectedWeed, setSelectedWeed] = useState<string | null>(null);
-  const [actionWeed, setActionWeed] = useState<string | null>(null);
 
   useEffect(() => {
     const onLoaded = () => setStatus('loaded');
@@ -29,23 +25,6 @@ export default function Overlay() {
       window.removeEventListener('splat:error', onError);
     };
   }, []);
-
-  const toggleCamera = () => {
-    const viewer = (window as any).gsplatViewer;
-    if (!viewer?.controls) return;
-    const next: CameraMode = cameraMode === 'perspective' ? 'topdown' : 'perspective';
-    if (next === 'topdown') {
-      viewer.controls.target.set(0, 0, 0);
-      viewer.camera.position.set(0, -10, 0);
-      viewer.camera.up.set(0, 0, 1);
-    } else {
-      viewer.camera.position.set(0, -1, 5);
-      viewer.camera.up.set(0, -1, 0);
-      viewer.controls.target.set(0, 0, 0);
-    }
-    viewer.controls.update();
-    setCameraMode(next);
-  };
 
   const statusLabel = {
     loading: 'Loading 3D Farm Data…',
@@ -66,34 +45,28 @@ export default function Overlay() {
   }[status];
 
   return (
-    <div className="absolute inset-0 pointer-events-none p-6 flex flex-col justify-between overflow-hidden">
+    <div className="absolute inset-0 pointer-events-none p-6 flex flex-col justify-between overflow-hidden"
+      style={{
+        backgroundImage: `url(${farmBackground})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundAttachment: 'fixed'
+      }}>
       {/* Top HUD */}
       <div className="flex justify-between items-start pointer-events-auto gap-6">
-        <div className="flex items-center gap-3 px-5 py-3 rounded-2xl bg-black/50 backdrop-blur-xl border border-white/15 shadow-xl shadow-black/30 hover:border-white/25 transition-all duration-200 cursor-default">
+        <div className="flex items-center gap-3 px-5 py-3 rounded-2xl bg-black/50 backdrop-blur-xl border border-white/30 shadow-lg hover:border-white/40 transition-all duration-200 cursor-default">
           <div className={`w-2.5 h-2.5 rounded-full flex items-center justify-center text-xs font-bold ${status === 'loaded' ? 'bg-emerald-400 text-black animate-none' : status === 'loading' ? 'bg-amber-400 text-black animate-pulse' : 'bg-rose-400 text-white animate-pulse'}`}>{statusIcon}</div>
           <span className={`text-xs font-semibold tracking-wider ${statusColor}`}>{statusLabel}</span>
-          {status === 'loaded' && (
-            <>
-              <div className="w-px h-5 bg-white/20 mx-2" />
-              <span className="text-white/65 text-xs font-mono uppercase tracking-widest font-medium">{cameraMode}</span>
-            </>
-          )}
         </div>
 
         <div className="flex items-center gap-3">
           <Link
-            to="/report"
-            className="flex items-center gap-2 px-5 py-3 rounded-xl bg-emerald-500/25 border border-emerald-400/40 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/35 hover:border-emerald-300/60 hover:shadow-lg hover:shadow-emerald-500/20 hover:scale-105 transition-all duration-200 shadow-md select-none uppercase tracking-widest cursor-pointer focus:ring-2 focus:ring-emerald-400 focus:outline-none"
+            to="/3d-view"
+            className="flex items-center gap-2 px-5 py-3 rounded-xl bg-cyan-500/25 border border-cyan-400/40 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/35 hover:border-cyan-300/60 hover:shadow-lg hover:shadow-cyan-500/20 hover:scale-105 transition-all duration-200 shadow-md select-none uppercase tracking-widest cursor-pointer focus:ring-2 focus:ring-cyan-400 focus:outline-none"
           >
-            <FileText className="w-4 h-4" />
-            Full Report
+            <Sun className="w-4 h-4" />
+            3D View
           </Link>
-          <button
-            onClick={toggleCamera}
-            className="px-5 py-3 rounded-xl bg-black/50 backdrop-blur-xl border border-white/15 text-xs font-semibold text-white/70 hover:text-white hover:bg-white/15 hover:border-white/35 hover:shadow-lg hover:shadow-white/10 hover:scale-105 transition-all duration-200 shadow-md select-none uppercase tracking-widest cursor-pointer focus:ring-2 focus:ring-white/40 focus:outline-none"
-          >
-            {cameraMode === 'perspective' ? 'Top-Down View' : 'Perspective View'}
-          </button>
         </div>
       </div>
 
@@ -102,7 +75,56 @@ export default function Overlay() {
 
         {/* Left Panel: Farm UI */}
         <div className="w-[420px] flex flex-col gap-6 pointer-events-auto h-full overflow-y-auto pr-2 pb-4 scroll-smooth shrink-0" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-          
+
+          {/* Comprehensive Report - FIRST CARD */}
+          <DashboardCard title="Farm Report Summary" icon={<FileText className="w-5 h-5 text-blue-400" />}>
+            <div className="space-y-3">
+              {/* Health Score */}
+              <div className="p-5 rounded-xl bg-blue-500/15 border border-blue-400/35">
+                <div className="flex justify-between items-center mb-3">
+                  <span className="text-sm text-white/70 uppercase tracking-wider font-bold">Overall Health Score</span>
+                  <span className="text-2xl font-bold text-blue-400">94/100</span>
+                </div>
+                <div className="h-3 w-full bg-black/60 rounded-full overflow-hidden border border-white/20">
+                  <div className="h-full bg-blue-500 rounded-full" style={{ width: '94%' }} />
+                </div>
+              </div>
+
+              {/* Key Metrics */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-4 rounded-xl bg-emerald-500/15 border border-emerald-400/35">
+                  <p className="text-sm text-white/70 uppercase tracking-wider font-bold mb-2">Soil Health</p>
+                  <p className="text-lg font-bold text-emerald-400">Excellent</p>
+                </div>
+                <div className="p-4 rounded-xl bg-orange-500/15 border border-orange-400/35">
+                  <p className="text-sm text-white/70 uppercase tracking-wider font-bold mb-2">Growth Stage</p>
+                  <p className="text-lg font-bold text-orange-400">Flowering</p>
+                </div>
+              </div>
+
+              {/* Status Indicators */}
+              <div className="space-y-3 pt-3 border-t border-white/8">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-white/70">Active Threats</span>
+                  <span className="font-bold text-rose-400">2</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-white/70">Soil Moisture Avg</span>
+                  <span className="font-bold text-blue-400">42%</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-white/70">Avg Temperature</span>
+                  <span className="font-bold text-orange-400">75.6°F</span>
+                </div>
+              </div>
+
+              {/* Last Updated */}
+              <div className="text-xs text-white/50 text-center pt-2 border-t border-white/8">
+                Last updated: {new Date().toLocaleString()}
+              </div>
+            </div>
+          </DashboardCard>
+
           <DashboardCard title="Soil Health Analytics" icon={<Beaker className="w-5 h-5 text-emerald-400" />}>
             <MetricRow label="pH Level" value="6.5" unit="Optimal" icon={<Gauge className="w-4 h-4 text-emerald-400/70" />} progress={65} color="bg-emerald-500" />
 
@@ -117,42 +139,36 @@ export default function Overlay() {
 
             <div className="pt-4 border-t border-white/8 space-y-3">
               <MetricRow label="Soil Moisture" value="42" unit="%" icon={<Droplets className="w-4 h-4 text-blue-400/70" />} progress={42} color="bg-blue-400" />
-              <MetricRow label="Soil Temp" value="18.5" unit="°C" icon={<Thermometer className="w-4 h-4 text-orange-400/70" />} progress={60} color="bg-orange-400" />
+              <MetricRow label="Soil Temp" value="65.3" unit="°F" icon={<Thermometer className="w-4 h-4 text-orange-400/70" />} progress={60} color="bg-orange-400" />
             </div>
           </DashboardCard>
 
           <DashboardCard title="Weed Identification" icon={<Scan className="w-5 h-5 text-rose-400" />}>
             <div className="space-y-3">
               {/* Pigweed */}
-              <div className="flex items-center justify-between p-4 rounded-xl bg-rose-500/15 border border-rose-400/35 shadow-sm hover:bg-rose-500/20 hover:border-rose-400/50 hover:scale-102 transition-all duration-200 group cursor-pointer" onClick={() => { setSelectedWeed('pigweed'); setShowWeedModal(true); }}>
+              <div className="flex items-center justify-between p-5 rounded-xl bg-rose-500/15 border border-rose-400/35 shadow-sm hover:bg-rose-500/20 hover:border-rose-400/50 hover:scale-102 transition-all duration-200 group cursor-pointer" onClick={() => { setSelectedWeed('pigweed'); setShowWeedModal(true); }}>
                 <div className="flex items-center gap-3 flex-1">
-                  <div className="p-2 bg-rose-500/25 rounded-lg group-hover:bg-rose-500/35 transition-colors">
-                    <ShieldAlert className="w-5 h-5 text-rose-400" />
+                  <div className="p-2.5 bg-rose-500/25 rounded-lg group-hover:bg-rose-500/35 transition-colors">
+                    <ShieldAlert className="w-6 h-6 text-rose-400" />
                   </div>
                   <div>
-                    <h4 className="text-sm font-bold text-white/95">Pigweed</h4>
-                    <p className="text-xs text-rose-300/80 font-medium">Sector 4A • High Priority</p>
+                    <h4 className="text-base font-bold text-white/95">Pigweed</h4>
+                    <p className="text-sm text-rose-300/80 font-medium">Sector 4A • High Priority</p>
                   </div>
                 </div>
-                <button onClick={(e) => { e.stopPropagation(); setActionWeed('pigweed'); setShowActionModal(true); setSelectedTreatment(null); }} className="px-3 py-2 rounded-lg bg-rose-500/30 text-rose-300 text-xs font-bold hover:bg-rose-500/45 hover:shadow-md hover:shadow-rose-500/20 hover:scale-105 transition-all duration-200 uppercase tracking-widest cursor-pointer focus:ring-2 focus:ring-rose-400 focus:outline-none">
-                  Action
-                </button>
               </div>
 
               {/* Crabgrass */}
-              <div className="flex items-center justify-between p-4 rounded-xl bg-amber-500/15 border border-amber-400/35 shadow-sm hover:bg-amber-500/20 hover:border-amber-400/50 hover:scale-102 transition-all duration-200 group cursor-pointer" onClick={() => { setSelectedWeed('crabgrass'); setShowWeedModal(true); }}>
+              <div className="flex items-center justify-between p-5 rounded-xl bg-amber-500/15 border border-amber-400/35 shadow-sm hover:bg-amber-500/20 hover:border-amber-400/50 hover:scale-102 transition-all duration-200 group cursor-pointer" onClick={() => { setSelectedWeed('crabgrass'); setShowWeedModal(true); }}>
                 <div className="flex items-center gap-3 flex-1">
-                  <div className="p-2 bg-amber-500/25 rounded-lg group-hover:bg-amber-500/35 transition-colors">
-                    <ShieldAlert className="w-5 h-5 text-amber-400" />
+                  <div className="p-2.5 bg-amber-500/25 rounded-lg group-hover:bg-amber-500/35 transition-colors">
+                    <ShieldAlert className="w-6 h-6 text-amber-400" />
                   </div>
                   <div>
-                    <h4 className="text-sm font-bold text-white/95">Crabgrass</h4>
-                    <p className="text-xs text-amber-300/80 font-medium">Sector 2B • Medium Priority</p>
+                    <h4 className="text-base font-bold text-white/95">Crabgrass</h4>
+                    <p className="text-sm text-amber-300/80 font-medium">Sector 2B • Medium Priority</p>
                   </div>
                 </div>
-                <button onClick={(e) => { e.stopPropagation(); setActionWeed('crabgrass'); setShowActionModal(true); setSelectedTreatment(null); }} className="px-3 py-2 rounded-lg bg-amber-500/30 text-amber-300 text-xs font-bold hover:bg-amber-500/45 hover:shadow-md hover:shadow-amber-500/20 hover:scale-105 transition-all duration-200 uppercase tracking-widest cursor-pointer focus:ring-2 focus:ring-amber-400 focus:outline-none">
-                  Action
-                </button>
               </div>
             </div>
             <div className="flex items-center justify-between text-xs pt-3 border-t border-white/8">
@@ -162,10 +178,10 @@ export default function Overlay() {
           </DashboardCard>
 
           {/* Environmental Sensors */}
-          
-          <DashboardCard title="Ambient Conditions" icon={<Sun className="w-5 h-5 text-amber-400" />}>
+
+          <DashboardCard title="Conditions" icon={<Sun className="w-5 h-5 text-amber-400" />}>
             <div className="grid grid-cols-2 gap-3 mb-6">
-              <SensorBlock label="Temperature" value="24.2" unit="°C" icon={<Thermometer className="w-4 h-4 text-orange-400" />} />
+              <SensorBlock label="Temperature" value="75.6" unit="°F" icon={<Thermometer className="w-4 h-4 text-orange-400" />} />
               <SensorBlock label="Humidity" value="55" unit="%" icon={<Droplets className="w-4 h-4 text-blue-400" />} />
               <SensorBlock label="UV Index" value="7.2" unit="High" icon={<Sun className="w-4 h-4 text-amber-400" />} />
               <SensorBlock label="Solar Rad." value="850" unit="W/m²" icon={<Sprout className="w-4 h-4 text-yellow-400" />} />
@@ -205,20 +221,6 @@ export default function Overlay() {
         </div>
       </div>
 
-      {/* Action Modal */}
-      {showActionModal && (
-        <WeedActionModal
-          weedType={actionWeed}
-          onClose={() => {
-            setShowActionModal(false);
-            setSelectedTreatment(null);
-            setActionWeed(null);
-          }}
-          onSelectTreatment={setSelectedTreatment}
-          selectedTreatment={selectedTreatment}
-        />
-      )}
-
       {/* Weed Info Modal */}
       {showWeedModal && (
         <WeedInfoModal
@@ -239,23 +241,23 @@ function DashboardCard({ title, icon, children }: { title: string, icon: React.R
   const [isExpanded, setIsExpanded] = useState(true);
 
   return (
-    <div className="rounded-2xl bg-black/40 backdrop-blur-xl border border-white/15 p-6 shadow-2xl shadow-black/50 transition-all duration-300 hover:bg-black/50 hover:border-white/25 hover:shadow-2xl hover:shadow-emerald-500/10 hover:scale-101 focus-within:ring-2 focus-within:ring-emerald-500/50">
-      <div 
-        className={`flex items-center justify-between gap-3 ${isExpanded ? 'mb-5 pb-3 border-b border-white/8' : ''} cursor-pointer select-none`}
+    <div className="rounded-2xl bg-black/50 backdrop-blur-xl border border-white/30 p-8 shadow-lg transition-all duration-300 hover:bg-black/60 hover:border-white/40 hover:shadow-xl hover:shadow-emerald-500/10 hover:scale-101 focus-within:ring-2 focus-within:ring-emerald-500/30">
+      <div
+        className={`flex items-center justify-between gap-3 ${isExpanded ? 'mb-6 pb-4 border-b border-white/8' : ''} cursor-pointer select-none`}
         onClick={() => setIsExpanded(!isExpanded)}
       >
         <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-lg bg-white/8 border border-white/10 shadow-sm">
+          <div className="p-3 rounded-lg bg-white/8 border border-white/10 shadow-sm">
             {icon}
           </div>
-          <h3 className="text-sm font-bold text-white/95 tracking-wide uppercase">{title}</h3>
+          <h3 className="text-base font-bold text-white/95 tracking-wide uppercase">{title}</h3>
         </div>
         <button className="text-white/50 hover:text-white/90 transition-colors p-1 rounded-md hover:bg-white/10">
-          {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
         </button>
       </div>
       {isExpanded && (
-        <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
+        <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
           {children}
         </div>
       )}
@@ -265,18 +267,18 @@ function DashboardCard({ title, icon, children }: { title: string, icon: React.R
 
 function MetricRow({ label, value, unit, icon, progress, color }: any) {
   return (
-    <div className="pb-3 last:pb-0">
-      <div className="flex justify-between items-end mb-2.5 gap-2">
-        <div className="flex items-center gap-2 text-xs text-white/75 font-medium">
+    <div className="pb-4 last:pb-0">
+      <div className="flex justify-between items-end mb-3 gap-2">
+        <div className="flex items-center gap-2 text-sm text-white/75 font-medium">
           <span className="opacity-85">{icon}</span>
           <span>{label}</span>
         </div>
         <div className="flex items-baseline gap-1.5">
-          <span className="text-base font-bold text-white/95">{value}</span>
-          <span className="text-xs text-white/65 font-medium">{unit}</span>
+          <span className="text-lg font-bold text-white/95">{value}</span>
+          <span className="text-sm text-white/65 font-medium">{unit}</span>
         </div>
       </div>
-      <div className="h-2.5 w-full bg-black/60 rounded-full overflow-hidden shadow-inner border border-white/5">
+      <div className="h-3 w-full bg-black/60 rounded-full overflow-hidden shadow-inner border border-white/20">
         <div className={`h-full ${color} rounded-full transition-all duration-300 ease-out shadow-lg`} style={{ width: `${progress}%` }} />
       </div>
     </div>
@@ -285,47 +287,47 @@ function MetricRow({ label, value, unit, icon, progress, color }: any) {
 
 function NPKBar({ label, value, color }: any) {
   return (
-    <div className="flex-1 bg-black/50 rounded-xl p-3 border border-white/15 flex flex-col items-center gap-2 hover:bg-black/60 hover:border-white/25 hover:scale-105 transition-all duration-200 shadow-sm cursor-pointer">
-      <span className="text-xs font-bold text-white/70 uppercase tracking-wide">{label}</span>
-      <div className="h-16 w-2 bg-black/60 rounded-full overflow-hidden shadow-inner border border-white/10 flex flex-col justify-end">
+    <div className="flex-1 bg-black/40 rounded-xl p-4 border border-white/30 flex flex-col items-center gap-3 hover:bg-black/50 hover:border-white/40 hover:scale-105 transition-all duration-200 shadow-sm cursor-pointer">
+      <span className="text-sm font-bold text-white/90 uppercase tracking-wide">{label}</span>
+      <div className="h-20 w-3 bg-black/60 rounded-full overflow-hidden shadow-inner border border-white/20 flex flex-col justify-end">
         <div className={`w-full ${color} rounded-full transition-all duration-300 shadow-md`} style={{ height: `${value}%` }} />
       </div>
-      <span className="text-sm font-bold text-white/95 tabular-nums">{value}%</span>
+      <span className="text-base font-bold text-white/95 tabular-nums">{value}%</span>
     </div>
   );
 }
 
 function SensorBlock({ label, value, unit, icon }: any) {
   return (
-    <div className="bg-black/40 p-4 rounded-xl border border-white/15 hover:border-white/30 hover:bg-black/50 hover:scale-105 transition-all duration-200 shadow-sm hover:shadow-md group cursor-pointer focus-within:ring-2 focus-within:ring-white/40">
-      <div className="flex items-start gap-2.5 mb-2.5">
+    <div className="bg-black/40 p-5 rounded-xl border border-white/30 hover:border-white/40 hover:bg-black/50 hover:scale-105 transition-all duration-200 shadow-sm hover:shadow-md group cursor-pointer focus-within:ring-2 focus-within:ring-white/40">
+      <div className="flex items-start gap-3 mb-3">
         <div className="opacity-80 group-hover:opacity-100 transition-opacity mt-0.5">
           {icon}
         </div>
-        <span className="text-xs text-white/70 uppercase tracking-wide font-semibold">{label}</span>
+        <span className="text-sm text-white/70 uppercase tracking-wide font-semibold">{label}</span>
       </div>
       <div className="flex items-baseline gap-1.5 pl-0.5">
-        <span className="text-xl font-bold text-white/95">{value}</span>
-        <span className="text-xs text-white/65 font-medium">{unit}</span>
+        <span className="text-2xl font-bold text-white/95">{value}</span>
+        <span className="text-sm text-white/65 font-medium">{unit}</span>
       </div>
     </div>
   );
 }
 
 function WeatherForecast({ type }: { type: 'temperature' | 'precipitation' }) {
-  // Historical data (last 4 days)
+  // Historical data (last 4 days) - Celsius to Fahrenheit, mm to inches
   const pastData = [
-    { day: 'May 26', temp: 22, precip: 0, icon: '☀️' },
-    { day: 'May 27', temp: 19, precip: 5, icon: '🌤️' },
-    { day: 'May 28', temp: 18, precip: 12, icon: '🌧️' },
-    { day: 'May 29', temp: 21, precip: 2, icon: '☁️' },
+    { day: 'May 26', temp: 72, precip: 0.0, icon: '☀️' },
+    { day: 'May 27', temp: 66, precip: 0.20, icon: '🌤️' },
+    { day: 'May 28', temp: 64, precip: 0.47, icon: '🌧️' },
+    { day: 'May 29', temp: 70, precip: 0.08, icon: '☁️' },
   ];
 
-  // Future forecast (next 3 days)
+  // Future forecast (next 3 days) - Celsius to Fahrenheit, mm to inches
   const futureData = [
-    { day: 'Today', temp: 24, precip: 0, icon: '☀️' },
-    { day: 'Tomorrow', temp: 23, precip: 3, icon: '🌤️' },
-    { day: 'Jun 1', temp: 20, precip: 8, icon: '🌧️' },
+    { day: 'Today', temp: 75, precip: 0.0, icon: '☀️' },
+    { day: 'Tomorrow', temp: 73, precip: 0.12, icon: '🌤️' },
+    { day: 'Jun 1', temp: 68, precip: 0.31, icon: '🌧️' },
   ];
 
   if (type === 'temperature') {
@@ -350,7 +352,7 @@ function WeatherForecast({ type }: { type: 'temperature' | 'precipitation' }) {
               <div key={i} className="flex-1 text-center">
                 <div className="text-lg mb-1">{d.icon}</div>
                 <div className="text-xs text-white/70 font-medium">{d.day}</div>
-                <div className="text-sm font-bold text-emerald-400">{d.temp}°</div>
+                <div className="text-sm font-bold text-blue-400">{d.temp}°F</div>
               </div>
             ))}
           </div>
@@ -369,14 +371,14 @@ function WeatherForecast({ type }: { type: 'temperature' | 'precipitation' }) {
             <div key={i} className="flex-1">
               <div className="text-lg text-center mb-1">{d.icon}</div>
               <div className="text-xs text-white/70 text-center font-medium">{d.day}</div>
-              <div className="h-12 bg-black/40 rounded-lg mt-1 flex items-end justify-center border border-white/10 relative" style={{ minHeight: '3rem' }}>
+              <div className="h-12 bg-black/40 rounded-lg mt-1 flex items-end justify-center border border-white/25 relative" style={{ minHeight: '3rem' }}>
                 <div
                   className="bg-blue-400/70 w-3/4 rounded-t transition-all duration-300"
-                  style={{ height: `${Math.max(d.precip * 2, 2)}px` }}
+                  style={{ height: `${Math.max(d.precip * 30, 2)}px` }}
                 ></div>
-                <div className="absolute bottom-1 text-xs text-white/70 font-mono">{d.precip}</div>
+                <div className="absolute bottom-1 text-xs text-white/70 font-mono">{d.precip.toFixed(2)}</div>
               </div>
-              <div className="text-xs text-white/90 text-center font-bold mt-1">{d.precip}mm</div>
+              <div className="text-xs text-white/90 text-center font-bold mt-1">{d.precip.toFixed(2)}"</div>
             </div>
           ))}
         </div>
@@ -387,14 +389,14 @@ function WeatherForecast({ type }: { type: 'temperature' | 'precipitation' }) {
             <div key={i} className="flex-1">
               <div className="text-lg text-center mb-1">{d.icon}</div>
               <div className="text-xs text-white/70 text-center font-medium">{d.day}</div>
-              <div className="h-12 bg-black/40 rounded-lg mt-1 flex items-end justify-center border border-white/10 relative" style={{ minHeight: '3rem' }}>
+              <div className="h-12 bg-black/40 rounded-lg mt-1 flex items-end justify-center border border-white/25 relative" style={{ minHeight: '3rem' }}>
                 <div
-                  className="bg-emerald-400/70 w-3/4 rounded-t transition-all duration-300"
-                  style={{ height: `${Math.max(d.precip * 2, 2)}px` }}
+                  className="bg-blue-400/70 w-3/4 rounded-t transition-all duration-300"
+                  style={{ height: `${Math.max(d.precip * 30, 2)}px` }}
                 ></div>
-                <div className="absolute bottom-1 text-xs text-white/70 font-mono">{d.precip}</div>
+                <div className="absolute bottom-1 text-xs text-white/70 font-mono">{d.precip.toFixed(2)}</div>
               </div>
-              <div className="text-xs text-white/90 text-center font-bold mt-1">{d.precip}mm</div>
+              <div className="text-xs text-white/90 text-center font-bold mt-1">{d.precip.toFixed(2)}"</div>
             </div>
           ))}
         </div>
@@ -444,8 +446,8 @@ function WeedInfoModal({ weedType, onClose }: { weedType: string | null; onClose
   const weed = weedDatabase[weedType || 'pigweed'];
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center pointer-events-auto z-50">
-      <div className="bg-black/80 border border-white/20 rounded-3xl p-8 max-w-3xl w-full mx-4 shadow-2xl shadow-black/80">
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center pointer-events-auto z-50">
+      <div className="bg-white/25 backdrop-blur-xl border border-white/40 rounded-3xl p-8 max-w-3xl w-full mx-4 shadow-2xl shadow-black/30">
         {/* Close Button */}
         <button
           onClick={onClose}
@@ -478,8 +480,8 @@ function WeedInfoModal({ weedType, onClose }: { weedType: string | null; onClose
         </div>
 
         {/* Description */}
-        <div className="mb-6 p-4 rounded-xl bg-white/5 border border-white/10">
-          <p className="text-white/80 text-sm leading-relaxed">{weed.description}</p>
+        <div className="mb-6 p-4 rounded-xl bg-white/15 border border-white/25">
+          <p className="text-white/90 text-sm leading-relaxed">{weed.description}</p>
         </div>
 
         {/* Characteristics Grid */}
@@ -487,7 +489,7 @@ function WeedInfoModal({ weedType, onClose }: { weedType: string | null; onClose
           <h3 className="text-xs font-bold text-white/70 uppercase tracking-wider mb-3">Key Characteristics</h3>
           <div className="grid grid-cols-2 gap-2">
             {weed.characteristics.map((char: string, idx: number) => (
-              <div key={idx} className="flex items-start gap-2 p-2 rounded-lg bg-white/5 border border-white/10">
+              <div key={idx} className="flex items-start gap-2 p-2 rounded-lg bg-white/15 border border-white/25">
                 <span className="text-emerald-400 mt-0.5">✓</span>
                 <span className="text-xs text-white/80">{char}</span>
               </div>
@@ -497,15 +499,15 @@ function WeedInfoModal({ weedType, onClose }: { weedType: string | null; onClose
 
         {/* Info Grid */}
         <div className="grid grid-cols-3 gap-3 mb-6">
-          <div className="p-3 rounded-xl bg-white/5 border border-white/10">
+          <div className="p-3 rounded-xl bg-white/15 border border-white/25">
             <p className="text-xs text-white/60 uppercase tracking-wider font-bold mb-1">Impact</p>
             <p className="text-xs text-white/85">{weed.impact}</p>
           </div>
-          <div className="p-3 rounded-xl bg-white/5 border border-white/10">
+          <div className="p-3 rounded-xl bg-white/15 border border-white/25">
             <p className="text-xs text-white/60 uppercase tracking-wider font-bold mb-1">Season</p>
             <p className="text-xs text-white/85">{weed.season}</p>
           </div>
-          <div className="p-3 rounded-xl bg-white/5 border border-white/10">
+          <div className="p-3 rounded-xl bg-white/15 border border-white/25">
             <p className="text-xs text-white/60 uppercase tracking-wider font-bold mb-1">Status</p>
             <p className="text-xs text-rose-400 font-bold">Active Threat</p>
           </div>
@@ -518,134 +520,6 @@ function WeedInfoModal({ weedType, onClose }: { weedType: string | null; onClose
         >
           Close & Review Treatments
         </button>
-      </div>
-    </div>
-  );
-}
-
-function TreatmentOption({ id, title, description, icon, onSelect, isSelected }: any) {
-  return (
-    <button
-      onClick={() => onSelect(id)}
-      className={`w-full text-left p-4 rounded-xl border-2 transition-all duration-200 cursor-pointer hover:scale-102 ${
-        isSelected
-          ? 'border-emerald-400 bg-emerald-500/20 shadow-lg shadow-emerald-500/20'
-          : 'border-white/15 bg-black/40 hover:border-white/30 hover:bg-black/50'
-      }`}
-    >
-      <div className="flex items-start gap-3">
-        <div className={`text-2xl mt-0.5 ${isSelected ? 'scale-110' : ''} transition-transform`}>
-          {icon}
-        </div>
-        <div className="flex-1">
-          <h4 className="text-sm font-bold text-white/95">{title}</h4>
-          <p className="text-xs text-white/70 mt-1 leading-relaxed">{description}</p>
-        </div>
-        {isSelected && <div className="text-emerald-400 text-lg">✓</div>}
-      </div>
-    </button>
-  );
-}
-
-function WeedActionModal({ weedType, onClose, onSelectTreatment, selectedTreatment }: any) {
-  const weedInfo: Record<string, any> = {
-    pigweed: { name: 'Pigweed', sector: '4A' },
-    crabgrass: { name: 'Crabgrass', sector: '2B' },
-  };
-
-  const weed = weedInfo[weedType || 'pigweed'];
-
-  const handleExecute = () => {
-    if (selectedTreatment) {
-      onClose();
-      alert(`🤖 Robot assigned to execute: ${selectedTreatment}\n\nThe autonomous agricultural robot is en route to Sector ${weed.sector} and will begin ${weed.name} treatment shortly.`);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center pointer-events-auto z-50">
-      <div className="bg-black/80 border border-white/20 rounded-3xl p-8 max-w-2xl w-full mx-4 shadow-2xl shadow-black/80">
-        {/* Header */}
-        <div className="flex items-start justify-between mb-6">
-          <div>
-            <h2 className="text-2xl font-bold text-white/95">{weed.name} Treatment Options</h2>
-            <p className="text-sm text-white/60 mt-2">Sector {weed.sector} • Select treatment method for deployment</p>
-          </div>
-          <button
-            onClick={onClose}
-            className="text-white/50 hover:text-white/80 text-2xl cursor-pointer transition-colors"
-          >
-            ✕
-          </button>
-        </div>
-
-        {/* Treatment Options */}
-        <div className="space-y-4 mb-8">
-          <h3 className="text-xs font-bold text-white/70 uppercase tracking-wider mb-4">Early Stage (Under 3 inches)</h3>
-          <TreatmentOption
-            id="pull"
-            title="Manual Pulling"
-            description="Physically remove weeds by hand or with a pulling tool. Most effective when soil is moist. Cost-effective for small infestations."
-            icon="🤲"
-            onSelect={onSelectTreatment}
-            isSelected={selectedTreatment === 'pull'}
-          />
-          <TreatmentOption
-            id="hoe"
-            title="Hoeing"
-            description="Use a hoe to cut weeds below the soil surface. Fast and effective for larger early-stage areas. Requires follow-up for root fragments."
-            icon="⛏️"
-            onSelect={onSelectTreatment}
-            isSelected={selectedTreatment === 'hoe'}
-          />
-          <TreatmentOption
-            id="mulch"
-            title="Heavy Mulching"
-            description="Apply 3-4 inches of mulch to block sunlight and prevent seed germination. Long-lasting solution, improves soil health."
-            icon="🌾"
-            onSelect={onSelectTreatment}
-            isSelected={selectedTreatment === 'mulch'}
-          />
-
-          <h3 className="text-xs font-bold text-white/70 uppercase tracking-wider mb-4 pt-4">Established Infestations</h3>
-          <TreatmentOption
-            id="herbicide"
-            title="Chemical Herbicides"
-            description="Apply selective or non-selective herbicides based on crop. Highly effective for large infestations. Follow safety guidelines and re-entry periods."
-            icon="🧪"
-            onSelect={onSelectTreatment}
-            isSelected={selectedTreatment === 'herbicide'}
-          />
-          <TreatmentOption
-            id="solarize"
-            title="Soil Solarization"
-            description="Cover soil with clear plastic for 4-6 weeks in hot weather. Heat kills weed seeds and pathogens. Ecological and chemical-free approach."
-            icon="☀️"
-            onSelect={onSelectTreatment}
-            isSelected={selectedTreatment === 'solarize'}
-          />
-        </div>
-
-        {/* Actions */}
-        <div className="flex gap-3">
-          <button
-            onClick={onClose}
-            className="flex-1 px-4 py-3 rounded-xl border border-white/20 text-white/80 font-semibold hover:bg-white/5 hover:border-white/30 transition-all duration-200 cursor-pointer"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleExecute}
-            disabled={!selectedTreatment}
-            className={`flex-1 px-4 py-3 rounded-xl font-bold uppercase tracking-widest transition-all duration-200 cursor-pointer ${
-              selectedTreatment
-                ? 'bg-emerald-500/40 border border-emerald-400/50 text-emerald-300 hover:bg-emerald-500/50 hover:shadow-lg hover:shadow-emerald-500/20'
-                : 'bg-black/40 border border-white/10 text-white/40 cursor-not-allowed'
-            }`}
-          >
-            🤖 Deploy Robot
-          </button>
-        </div>
       </div>
     </div>
   );
@@ -669,25 +543,25 @@ function GeminiChatbot() {
   return (
     <div className="flex flex-col h-full rounded-2xl bg-black/40 backdrop-blur-xl border border-white/15 shadow-2xl shadow-black/50 overflow-hidden">
       {/* Header */}
-      <div className="flex items-center gap-3 p-4 border-b border-white/15 bg-black/40">
-        <div className="p-2.5 rounded-lg bg-blue-500/20 border border-blue-400/30 shadow-inner">
-          <Sparkles className="w-5 h-5 text-blue-400" />
+      <div className="flex items-center gap-3 p-6 border-b border-white/15 bg-black/40">
+        <div className="p-3 rounded-lg bg-blue-500/20 border border-blue-400/30 shadow-inner">
+          <Sparkles className="w-6 h-6 text-blue-400" />
         </div>
         <div>
-          <h3 className="text-sm font-bold text-white/95 tracking-wide uppercase flex items-center gap-2">
-            Gemini AI <span className="px-1.5 py-0.5 rounded-md bg-blue-500/20 text-blue-300 text-[10px] font-bold">PRO</span>
+          <h3 className="text-base font-bold text-white/95 tracking-wide uppercase flex items-center gap-2">
+            Gemini AI <span className="px-2 py-1 rounded-md bg-blue-500/20 text-blue-300 text-xs font-bold">PRO</span>
           </h3>
-          <p className="text-xs text-white/60">Farm Operations Assistant</p>
+          <p className="text-sm text-white/60">Farm Operations Assistant</p>
         </div>
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+      <div className="flex-1 overflow-y-auto p-5 space-y-5 scroll-smooth" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
         {messages.map((msg, i) => (
           <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[85%] rounded-2xl p-3.5 text-sm leading-relaxed shadow-sm ${
-              msg.role === 'user' 
-                ? 'bg-blue-500/20 border border-blue-400/30 text-white/95 rounded-tr-sm' 
+            <div className={`max-w-[85%] rounded-2xl p-4 text-base leading-relaxed shadow-sm ${
+              msg.role === 'user'
+                ? 'bg-blue-500/20 border border-blue-400/30 text-white/95 rounded-tr-sm'
                 : 'bg-white/10 border border-white/15 text-white/90 rounded-tl-sm'
             }`}>
               {msg.text}
@@ -697,26 +571,26 @@ function GeminiChatbot() {
       </div>
 
       {/* Input */}
-      <div className="p-4 border-t border-white/15 bg-black/40">
+      <div className="p-5 border-t border-white/15 bg-black/40">
         <div className="flex gap-2">
-          <input 
-            type="text" 
+          <input
+            type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSend()}
             placeholder="Ask Gemini about your farm..."
-            className="flex-1 bg-black/50 border border-white/15 rounded-xl px-4 py-3 text-sm text-white/90 focus:outline-none focus:border-blue-400/50 focus:ring-1 focus:ring-blue-400/50 placeholder:text-white/40 transition-all shadow-inner"
+            className="flex-1 bg-black/50 border border-white/15 rounded-xl px-5 py-4 text-base text-white/90 focus:outline-none focus:border-blue-400/50 focus:ring-1 focus:ring-blue-400/50 placeholder:text-white/40 transition-all shadow-inner"
           />
-          <button 
+          <button
             onClick={handleSend}
             disabled={!input.trim()}
-            className={`p-3 rounded-xl border transition-all duration-200 focus:outline-none flex items-center justify-center shadow-md ${
-              input.trim() 
-                ? 'bg-blue-500/25 border-blue-400/40 text-blue-400 hover:bg-blue-500/40 hover:border-blue-400/60 hover:scale-105 cursor-pointer hover:shadow-blue-500/20' 
+            className={`p-4 rounded-xl border transition-all duration-200 focus:outline-none flex items-center justify-center shadow-md ${
+              input.trim()
+                ? 'bg-blue-500/25 border-blue-400/40 text-blue-400 hover:bg-blue-500/40 hover:border-blue-400/60 hover:scale-105 cursor-pointer hover:shadow-blue-500/20'
                 : 'bg-black/40 border-white/10 text-white/20 cursor-not-allowed'
             }`}
           >
-            <Send className="w-5 h-5 ml-0.5" />
+            <Send className="w-6 h-6 ml-0.5" />
           </button>
         </div>
       </div>
