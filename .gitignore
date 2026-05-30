@@ -218,9 +218,11 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Node / frontend
+node_modules/
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+scripts/node_modules/
 
 # Splat scene files (large binaries, not tracked)
 frontend/public/*.ply

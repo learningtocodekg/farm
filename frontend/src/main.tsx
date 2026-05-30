@@ -28,6 +28,7 @@ viewer
   })
   .then(() => {
     viewer.start();
+    (window as any)._splatLoaded = true;
     window.dispatchEvent(new CustomEvent('splat:loaded'));
   })
   .catch((err: unknown) => {
