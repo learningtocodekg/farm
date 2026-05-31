@@ -6,7 +6,7 @@ import {
   Compass, Gauge, Scan, Sprout, FileText,
   Sparkles, Send, ChevronDown, ChevronUp
 } from 'lucide-react';
-import farmBackground from './assets/images/farmbackground.png';
+import nitrogenHeatmap from './assets/images/nitrogen-heatmapp.jpeg';
 
 type SplatStatus = 'loading' | 'loaded' | 'error';
 
@@ -26,10 +26,11 @@ export default function Overlay() {
     };
   }, []);
 
+
   const statusLabel = {
-    loading: 'Loading 3D Farm Data…',
-    loaded: 'Farm Visualization Active',
-    error: 'Sensors Offline',
+    loading: 'HarvestEye',
+    loaded: 'HarvestEye',
+    error: 'HarvestEye',
   }[status];
 
   const statusColor = {
@@ -44,37 +45,57 @@ export default function Overlay() {
     error: '⚠',
   }[status];
 
-  return (
-    <div className="absolute inset-0 pointer-events-none p-6 flex flex-col justify-between overflow-hidden"
-      style={{
-        backgroundImage: `url(${farmBackground})`,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        backgroundAttachment: 'fixed'
-      }}>
-      {/* Top HUD */}
-      <div className="flex justify-between items-start pointer-events-auto gap-6">
-        <div className="flex items-center gap-3 px-5 py-3 rounded-2xl bg-black/50 backdrop-blur-xl border border-white/30 shadow-lg hover:border-white/40 transition-all duration-200 cursor-default">
-          <div className={`w-2.5 h-2.5 rounded-full flex items-center justify-center text-xs font-bold ${status === 'loaded' ? 'bg-emerald-400 text-black animate-none' : status === 'loading' ? 'bg-amber-400 text-black animate-pulse' : 'bg-rose-400 text-white animate-pulse'}`}>{statusIcon}</div>
-          <span className={`text-xs font-semibold tracking-wider ${statusColor}`}>{statusLabel}</span>
-        </div>
+  // Weed problem points plotted on the heatmap (matches Weed Identification data)
+  const weedPoints = [
+    { id: 'pigweed', name: 'Pigweed', sector: '4A', priority: 'High', color: 'rgb(244, 63, 94)', left: '15%', top: '15%' },
+    { id: 'crabgrass', name: 'Crabgrass', sector: '2B', priority: 'Medium', color: 'rgb(251, 191, 36)', left: '20%', top: '60%' },
+  ];
 
-        <div className="flex items-center gap-3">
-          <Link
-            to="/3d-view"
-            className="flex items-center gap-2 px-5 py-3 rounded-xl bg-cyan-500/25 border border-cyan-400/40 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/35 hover:border-cyan-300/60 hover:shadow-lg hover:shadow-cyan-500/20 hover:scale-105 transition-all duration-200 shadow-md select-none uppercase tracking-widest cursor-pointer focus:ring-2 focus:ring-cyan-400 focus:outline-none"
-          >
-            <Sun className="w-4 h-4" />
-            3D View
-          </Link>
-        </div>
+  return (
+    <div className="absolute inset-0 pointer-events-none p-6 flex flex-col justify-between overflow-hidden bg-black">
+      {/* Nitrogen Heatmap Background Layer */}
+      <div className="absolute inset-0 pointer-events-none" style={{
+        zIndex: 0,
+        backgroundImage: `url(${nitrogenHeatmap})`,
+        backgroundSize: 'contain',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+        filter: 'contrast(1.25) brightness(0.8)',
+      }} />
+      {/* Heatmap Intensity Zones (problem hot-spots) */}
+      <div className="absolute inset-0 pointer-events-none" style={{
+        zIndex: 0,
+        background: `
+          radial-gradient(circle at 42% 38%, rgba(244,63,94,0.55) 0%, rgba(244,63,94,0.25) 8%, rgba(251,146,60,0.15) 16%, transparent 26%),
+          radial-gradient(circle at 63% 64%, rgba(251,191,36,0.5) 0%, rgba(251,191,36,0.22) 8%, rgba(234,179,8,0.12) 16%, transparent 26%)
+        `,
+        mixBlendMode: 'screen',
+      }} />
+
+      {/* Top Right Button */}
+      <div className="relative z-10 flex justify-end items-start pointer-events-auto gap-6">
+        <Link
+          to="/3d-view"
+          className="flex items-center gap-2 px-5 py-3 rounded-xl bg-cyan-500/25 border border-cyan-400/40 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/35 hover:border-cyan-300/60 hover:shadow-lg hover:shadow-cyan-500/20 hover:scale-105 transition-all duration-200 shadow-md select-none uppercase tracking-widest cursor-pointer focus:ring-2 focus:ring-cyan-400 focus:outline-none"
+        >
+          <Sun className="w-4 h-4" />
+          3D View
+        </Link>
       </div>
 
       {/* Main Dashboard Layout */}
-      <div className="flex-1 flex justify-between items-start mt-6 w-full pointer-events-none px-6 overflow-hidden gap-6 pb-6">
+      <div className="relative z-10 flex-1 flex justify-between items-start mt-6 w-full pointer-events-none px-6 overflow-hidden gap-6 pb-6">
 
         {/* Left Panel: Farm UI */}
-        <div className="w-[420px] flex flex-col gap-6 pointer-events-auto h-full overflow-y-auto pr-2 pb-4 scroll-smooth shrink-0" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+        <div className="flex flex-col gap-4 w-[420px] pointer-events-auto h-full shrink-0">
+          {/* Status Bar */}
+          <div className="flex items-center gap-5 px-12 py-8 rounded-2xl bg-black/50 backdrop-blur-xl border border-white/30 shadow-lg hover:border-white/40 transition-all duration-200 cursor-default w-[420px]">
+            <div className={`w-5 h-5 rounded-full flex items-center justify-center text-lg font-bold ${status === 'loaded' ? 'bg-emerald-400 text-black animate-none' : status === 'loading' ? 'bg-amber-400 text-black animate-pulse' : 'bg-rose-400 text-white animate-pulse'}`}>{statusIcon}</div>
+            <span className={`text-4xl font-bold tracking-wide ${statusColor}`}>{statusLabel}</span>
+          </div>
+
+          {/* Cards Container */}
+          <div className="flex flex-col gap-6 overflow-y-auto pr-2 pb-4 scroll-smooth flex-1" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
 
           {/* Comprehensive Report - FIRST CARD */}
           <DashboardCard title="Farm Report Summary" icon={<FileText className="w-5 h-5 text-blue-400" />}>
@@ -213,6 +234,39 @@ export default function Overlay() {
             <WeatherForecast type="precipitation" />
           </DashboardCard>
 
+          </div>
+        </div>
+
+        {/* Center: Heatmap Problem Markers */}
+        <div className="flex-1 relative h-full pointer-events-none">
+          {weedPoints.map((point) => (
+            <button
+              key={point.id}
+              onClick={() => { setSelectedWeed(point.id); setShowWeedModal(true); }}
+              className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-auto group focus:outline-none"
+              style={{ left: point.left, top: point.top }}
+              title={`${point.name} • Sector ${point.sector}`}
+            >
+              {/* Pulsing ring */}
+              <span
+                className="absolute inset-0 m-auto w-10 h-10 rounded-full animate-ping opacity-60"
+                style={{ backgroundColor: point.color }}
+              />
+              {/* Core dot */}
+              <span
+                className="relative block w-5 h-5 rounded-full border-2 border-white shadow-lg transition-transform duration-200 group-hover:scale-125"
+                style={{
+                  backgroundColor: point.color,
+                  boxShadow: `0 0 12px ${point.color}, 0 0 24px ${point.color}`,
+                }}
+              />
+              {/* Label */}
+              <span className="absolute left-1/2 -translate-x-1/2 top-7 whitespace-nowrap px-2.5 py-1 rounded-md bg-black/70 backdrop-blur-md border border-white/20 text-xs font-bold text-white/95 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                {point.name}
+                <span className="ml-1.5 text-white/60 font-medium">Sector {point.sector}</span>
+              </span>
+            </button>
+          ))}
         </div>
 
         {/* Right Panel: Gemini Chatbot */}

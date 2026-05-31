@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap');
 
 *, *::before, *::after {
   box-sizing: border-box;
@@ -21,7 +22,7 @@ html, body {
   overflow: hidden;
   background: transparent;
   color: #e2e8f0;
-  font-family: system-ui, 'Segoe UI', sans-serif;
+  font-family: 'Roboto Mono', monospace;
   -webkit-font-smoothing: antialiased;
 }
 
