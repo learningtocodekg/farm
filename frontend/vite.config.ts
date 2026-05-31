@@ -10,6 +10,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': 'http://localhost:8000',
+      '/frames': 'http://localhost:8000',
     },
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',

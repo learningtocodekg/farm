@@ -304,15 +304,17 @@ export default function Overlay() {
 
     const targetPt = row === 'left' ? leftPt : rightPt;
 
-    // midpoint between the two rows — camera always sits here
-    const midPt = leftPt.clone().add(rightPt).multiplyScalar(0.5);
+    // Camera sits beside the target row, offset 3 units away on the outside
+    // perpXZ points right→left, so:
+    //   left row camera: target + (-perpXZ * 3)  → sits on the right side, looks left
+    //   right row camera: target + (+perpXZ * 3) → sits on the left side, looks right
+    const outsideDir = row === 'left' ? perpXZ.clone().negate() : perpXZ.clone();
     const startY = groundY - 2;
+    const camPos = targetPt.clone().addScaledVector(outsideDir, 3);
+    camPos.y = startY;
 
-    const camPos = new THREE.Vector3(midPt.x, startY, midPt.z);
-
-    // lookDir: perpXZ goes right→left.
-    // Left row: look toward left (+perpXZ). Right row: look toward right (-perpXZ).
-    const lookDir = row === 'left' ? perpXZ.clone() : perpXZ.clone().negate();
+    // lookDir: from camera toward the target row
+    const lookDir = outsideDir.clone().negate();
     const lookTarget = camPos.clone().addScaledVector(lookDir, 10);
 
     const applyCameraPos = () => {
@@ -374,33 +376,47 @@ export default function Overlay() {
       );
     }
 
-    // W/S: move up/down (change Y — more negative = higher in this scene)
-    // A/D: move along the flight line direction (forward/back along the aisle)
+    // W/S: move up/down (Y axis)
+    // A/D: move along the flight line
+    // Arrow keys: rotate (pitch/yaw freely)
     // Y/U: zoom in/out
-    // After every move, re-apply lookAt so camera stays locked on the row
     const onKey = (e: KeyboardEvent) => {
-      const key = e.key.toLowerCase();
-      if (!['w', 's', 'a', 'd', 'y', 'u'].includes(key)) return;
+      const key = e.key;
+      const keyLower = key.toLowerCase();
+      const isMove = ['w', 's', 'a', 'd'].includes(keyLower);
+      const isRotate = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key);
+      const isZoom = ['y', 'u'].includes(keyLower);
+      if (!isMove && !isRotate && !isZoom) return;
       e.preventDefault();
       const v = getViewer();
       if (!v) return;
       const cam = v.camera as THREE.PerspectiveCamera;
-      if (key === 'w') {
-        cam.position.y -= 0.1;  // more negative = higher
-      } else if (key === 's') {
-        cam.position.y += 0.1;  // more positive = lower
-      } else if (key === 'a' || key === 'd') {
-        // Move along the aisle (flight line direction, XZ only)
-        const dir = key === 'a' ? 1 : -1;
-        cam.position.x += trueFlightXZ.x * dir * 0.1;
-        cam.position.z += trueFlightXZ.z * dir * 0.1;
+
+      if (isMove) {
+        if (keyLower === 'w') {
+          cam.position.y -= 0.1;
+        } else if (keyLower === 's') {
+          cam.position.y += 0.1;
+        } else {
+          const dir = keyLower === 'a' ? 1 : -1;
+          cam.position.x += trueFlightXZ.x * dir * 0.1;
+          cam.position.z += trueFlightXZ.z * dir * 0.1;
+        }
+        // After moving, keep looking at the row
+        cam.up.set(0, -1, 0);
+        cam.lookAt(cam.position.clone().addScaledVector(lookDir, 10));
+      } else if (isRotate) {
+        // Free rotation using Euler — pitch on local X, yaw on world Y
+        const ROTATE_SPEED = 0.03;
+        const euler = new THREE.Euler().setFromQuaternion(cam.quaternion, 'YXZ');
+        if (key === 'ArrowLeft')  euler.y += ROTATE_SPEED;
+        if (key === 'ArrowRight') euler.y -= ROTATE_SPEED;
+        if (key === 'ArrowUp')    euler.x -= ROTATE_SPEED;
+        if (key === 'ArrowDown')  euler.x += ROTATE_SPEED;
+        cam.quaternion.setFromEuler(euler);
       } else {
-        cam.fov = Math.max(5, Math.min(120, cam.fov + (key === 'u' ? 2 : -2)));
-        cam.updateProjectionMatrix();
+        cam.fov = Math.max(5, Math.min(120, cam.fov + (keyLower === 'u' ? 2 : -2)));
       }
-      cam.up.set(0, -1, 0);
-      // Re-derive look target from current cam position along the fixed lookDir
-      cam.lookAt(cam.position.clone().addScaledVector(lookDir, 10));
       cam.updateProjectionMatrix();
       cam.updateMatrixWorld();
     };

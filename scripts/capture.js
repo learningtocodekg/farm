@@ -28,17 +28,29 @@ async function sleep(ms) {
 
 async function capturePass(page, config, passSuffix, cameraConfig) {
   const { flightLine, frameWidth } = config;
-  const start = flightLine.start; // [x, z]
-  const end = flightLine.end;     // [x, z]
-  const y = flightLine.y;
+  const start = flightLine.start; // [x, y, z]
+  const end = flightLine.end;     // [x, y, z]
 
   const dx = end[0] - start[0];
-  const dz = end[1] - start[1];
+  const dz = end[2] - start[2];
   const totalDist = Math.sqrt(dx * dx + dz * dz);
   const numFrames = Math.max(1, Math.floor(totalDist / frameWidth));
   const step = totalDist / numFrames;
 
-  console.log(`  Pass ${passSuffix}: ${numFrames} frames, step=${step.toFixed(3)}, total dist=${totalDist.toFixed(3)}`);
+  // Flight line direction unit vector in XZ
+  const fwdX = dx / totalDist;
+  const fwdZ = dz / totalDist;
+
+  // The calibration camera has a perpendicular offset from the flight line.
+  // Project the calibration camera position onto the perp axis to get that offset,
+  // then add it to every frame position so the drone flies parallel to the row.
+  const perpX = -fwdZ;
+  const perpZ = fwdX;
+  const basePerpOffset =
+    (cameraConfig.position[0] - start[0]) * perpX +
+    (cameraConfig.position[2] - start[2]) * perpZ;
+
+  console.log(`  Pass ${passSuffix}: ${numFrames} frames, step=${step.toFixed(3)}, total dist=${totalDist.toFixed(3)}, perpOffset=${basePerpOffset.toFixed(3)}`);
 
   // Disable orbit controls for the whole pass so they don't fight the set quaternion
   await page.evaluate(() => {
@@ -50,8 +62,12 @@ async function capturePass(page, config, passSuffix, cameraConfig) {
 
   for (let i = 0; i < numFrames; i++) {
     const t = (i + 0.5) / numFrames; // center of each frame cell
-    const x = lerp(start[0], end[0], t);
-    const z = lerp(start[1], end[1], t);
+    const flX = lerp(start[0], end[0], t);
+    const flZ = lerp(start[2], end[2], t);
+    // Apply the perpendicular offset so camera flies beside the row, not on the flight line
+    const x = flX + basePerpOffset * perpX;
+    const z = flZ + basePerpOffset * perpZ;
+    const y = cameraConfig.position[1]; // use calibrated height, not flightLine.y
     const pos = [x, y, z];
 
     // Move camera to this position with the saved orientation.
