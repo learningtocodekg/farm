@@ -113,6 +113,14 @@ npm run dev
 
 The app will be available at `http://localhost:5173`.
 
+### 3. Deployment (Cloud Run)
+
+To deploy updates to the frontend on Google Cloud Run, simply execute the deployment script from the root directory:
+
+```bash
+./deploy-frontend.sh
+```
+
 ---
 
 ## 🤖 API Usage
