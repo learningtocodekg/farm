@@ -130,6 +130,7 @@ export default function Overlay() {
     leftCamera: null, rightCamera: null,
   });
   const [liveHeight, setLiveHeight] = useState<number>(0);
+  const [angleRow, setAngleRow] = useState<'left' | 'right'>('left');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [mouseWorld, setMouseWorld] = useState<[number, number, number] | null>(null);
   const [svgSize, setSvgSize]       = useState({ w: window.innerWidth, h: window.innerHeight });
@@ -137,6 +138,7 @@ export default function Overlay() {
   const wsHandlerRef    = useRef<((e: KeyboardEvent) => void) | null>(null);
   const wheelHandlerRef = useRef<((e: WheelEvent) => void) | null>(null);
   const cropPoleRef     = useRef<THREE.Mesh | null>(null);
+  const guideObjectsRef = useRef<THREE.Object3D[]>([]);
   const rafRef           = useRef<number | null>(null);
   const calibRef     = useRef(calib);
   useEffect(() => { calibRef.current = calib; }, [calib]);
@@ -282,69 +284,131 @@ export default function Overlay() {
     flightStart: [number, number, number],
     leftCropPt:  [number, number, number],
     rightCropPt: [number, number, number],
+    row: 'left' | 'right' = 'left',
   ) {
     const viewer = getViewer();
     if (!viewer) return;
     if (viewer.controls) viewer.controls.enabled = false;
 
-    // Use viewer's hardcoded up directly — all picks landed on y=0 so derived up = (0,-1,0) anyway
-    const sceneUp = new THREE.Vector3(0, -1, 0);
-
     const leftPt  = new THREE.Vector3(...leftCropPt);
     const rightPt = new THREE.Vector3(...rightCropPt);
 
-    // Direction from right crop toward left crop (the "look" direction)
-    const lookDir = leftPt.clone().sub(rightPt).normalize();
+    // Ground Y: average of the picked points (handles tilted ground)
+    const groundY = (leftCropPt[1] + rightCropPt[1] + flightStart[1]) / 3;
 
-    // Place camera behind + above the left crop row.
-    // Negative Y = up in this scene (cameraUp=[0,-1,0]).
-    // Push back 3 units from the row, and start 2 units above ground (Y - 2).
-    const startPt = new THREE.Vector3(...flightStart);
-    const initOffset = 3;
-    const camPos = leftPt.clone()
-      .addScaledVector(lookDir, initOffset)
-      .setY(startPt.y - 2);                  // start 2 units above ground level
+    // The direction FROM right TO left (perpendicular to flight line, flat in XZ)
+    const perpXZ = new THREE.Vector3(leftPt.x - rightPt.x, 0, leftPt.z - rightPt.z).normalize();
 
-    // camera.up = sceneUp, look toward leftPt from camPos
+    // Flight direction (along aisle) = perpXZ × worldUp — guaranteed orthogonal
+    const trueFlightXZ = new THREE.Vector3().crossVectors(perpXZ, new THREE.Vector3(0, 1, 0)).normalize();
+
+    // Camera starts at midpoint between the rows, pulled back slightly from the target row
+    const targetPt  = row === 'left' ? leftPt  : rightPt;
+    // "Behind" the camera = opposite side of target row from camera
+    // Camera is between the rows, so for left row: camera is on the right side of left row
+    // i.e. camera.x = targetPt.x + perpXZ * offset (pointing away from target toward other row)
+    const pullDir = row === 'left'
+      ? perpXZ.clone().negate()   // camera is to the right of the left row (toward center)
+      : perpXZ.clone();           // camera is to the left of the right row (toward center)
+
+    const startY = groundY - 2;  // 2 units above ground (negative = up in this scene)
+
+    const camPos = new THREE.Vector3(
+      targetPt.x + pullDir.x * 2,
+      startY,
+      targetPt.z + pullDir.z * 2,
+    );
+
+    // lookAt: look from camera position toward target, same Y (level horizontal view)
+    // camera.up = (0,-1,0) matches the splat viewer's cameraUp setting
     viewer.camera.position.copy(camPos);
-    viewer.camera.up.copy(sceneUp);
-    viewer.camera.lookAt(leftPt);
+    viewer.camera.up.set(0, -1, 0);
+    viewer.camera.lookAt(new THREE.Vector3(targetPt.x, camPos.y, targetPt.z));
     viewer.camera.updateProjectionMatrix();
     viewer.camera.updateMatrixWorld();
 
-    const heightAboveGround = 0;
-    setLiveHeight(heightAboveGround);
+    // Log for debugging
+    console.log('[AngleMode] row:', row);
+    console.log('[AngleMode] groundY:', groundY);
+    console.log('[AngleMode] perpXZ:', perpXZ);
+    console.log('[AngleMode] trueFlightXZ:', trueFlightXZ);
+    console.log('[AngleMode] camPos:', camPos);
+    console.log('[AngleMode] targetPt:', targetPt);
+    console.log('[AngleMode] cam.up after set:', viewer.camera.up);
+    console.log('[AngleMode] cam.quaternion:', viewer.camera.quaternion);
 
-    // Teal pole at left crop row so the operator can see which row they're framing
-    if (viewer.scene) {
-      const geo = new THREE.CylinderGeometry(0.05, 0.05, 100, 8);
-      const mat = new THREE.MeshBasicMaterial({ color: 0x00ffcc, depthTest: false });
-      const pole = new THREE.Mesh(geo, mat);
-      pole.position.copy(leftPt);
-      pole.renderOrder = 999;
-      viewer.scene.add(pole);
-      cropPoleRef.current = pole;
+    setAngleRow(row);
+    setLiveHeight(viewer.camera.position.y);
+
+    // Guide lines — drawn at groundY so they sit on the actual terrain
+    guideObjectsRef.current.forEach(o => viewer.threeScene?.remove(o));
+    guideObjectsRef.current = [];
+    if (viewer.threeScene) {
+      const FAR = 20;
+
+      const addLine = (a: THREE.Vector3, b: THREE.Vector3, color: number) => {
+        const geo = new THREE.BufferGeometry().setFromPoints([a, b]);
+        const mat = new THREE.LineBasicMaterial({ color, depthTest: false, linewidth: 2 });
+        const line = new THREE.Line(geo, mat);
+        line.renderOrder = 1000;
+        viewer.threeScene.add(line);
+        guideObjectsRef.current.push(line);
+      };
+
+      const leftColor  = row === 'left'  ? 0x00ffcc : 0x006655;
+      const rightColor = row === 'right' ? 0xc084fc : 0x442266;
+
+      // Lines along the flight direction at each crop row
+      addLine(
+        new THREE.Vector3(leftPt.x, groundY, leftPt.z).addScaledVector(trueFlightXZ,  FAR),
+        new THREE.Vector3(leftPt.x, groundY, leftPt.z).addScaledVector(trueFlightXZ, -FAR),
+        leftColor,
+      );
+      // Vertical pole at left crop row
+      addLine(
+        new THREE.Vector3(leftPt.x, groundY - 3, leftPt.z),
+        new THREE.Vector3(leftPt.x, groundY + 3, leftPt.z),
+        leftColor,
+      );
+      addLine(
+        new THREE.Vector3(rightPt.x, groundY, rightPt.z).addScaledVector(trueFlightXZ,  FAR),
+        new THREE.Vector3(rightPt.x, groundY, rightPt.z).addScaledVector(trueFlightXZ, -FAR),
+        rightColor,
+      );
+      addLine(
+        new THREE.Vector3(rightPt.x, groundY - 3, rightPt.z),
+        new THREE.Vector3(rightPt.x, groundY + 3, rightPt.z),
+        rightColor,
+      );
     }
 
-    const lockedQuat = viewer.camera.quaternion.clone();
-
-    // W/S: move camera up/down in scene Y (negative Y = up in this scene)
+    // W/S: move up/down (change Y — more negative = higher in this scene)
+    // A/D: move along the flight line direction (forward/back along the aisle)
+    // Y/U: zoom in/out
+    // After every move, re-apply lookAt so camera stays locked on the row
     const onKey = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
-      if (!['w', 's', 'y', 'u'].includes(key)) return;
+      if (!['w', 's', 'a', 'd', 'y', 'u'].includes(key)) return;
       e.preventDefault();
       const v = getViewer();
       if (!v) return;
       const cam = v.camera as THREE.PerspectiveCamera;
-      cam.quaternion.copy(lockedQuat);
-      if (key === 'w' || key === 's') {
-        // W = up in scene = negative Y; S = down = positive Y
-        const dir = key === 'w' ? -1 : 1;
-        cam.position.y += dir * 0.1;
+      if (key === 'w') {
+        cam.position.y -= 0.1;  // more negative = higher
+      } else if (key === 's') {
+        cam.position.y += 0.1;  // more positive = lower
+      } else if (key === 'a' || key === 'd') {
+        // Move along the aisle (flight line direction, XZ only)
+        const dir = key === 'a' ? 1 : -1;
+        cam.position.x += trueFlightXZ.x * dir * 0.1;
+        cam.position.z += trueFlightXZ.z * dir * 0.1;
       } else {
         cam.fov = Math.max(5, Math.min(120, cam.fov + (key === 'u' ? 2 : -2)));
         cam.updateProjectionMatrix();
       }
+      cam.up.set(0, -1, 0);
+      cam.lookAt(new THREE.Vector3(targetPt.x, cam.position.y, targetPt.z));
+      cam.updateProjectionMatrix();
       cam.updateMatrixWorld();
     };
 
@@ -386,11 +450,18 @@ export default function Overlay() {
     const viewer = getViewer();
     if (viewer?.controls) viewer.controls.enabled = true;
     if (cropPoleRef.current) {
-      if (viewer?.scene) viewer.scene.remove(cropPoleRef.current);
+      if (viewer?.threeScene) viewer.threeScene.remove(cropPoleRef.current);
       cropPoleRef.current.geometry.dispose();
       (cropPoleRef.current.material as THREE.Material).dispose();
       cropPoleRef.current = null;
     }
+    guideObjectsRef.current.forEach(o => {
+      if (viewer?.threeScene) viewer.threeScene.remove(o);
+      const line = o as THREE.Line;
+      line.geometry?.dispose();
+      (line.material as THREE.Material)?.dispose();
+    });
+    guideObjectsRef.current = [];
   }
 
   // ── Confirm / cancel / save ───────────────────────────────────────────────
@@ -399,23 +470,23 @@ export default function Overlay() {
     const viewer = getViewer();
     if (!viewer) return;
     const cam = viewer.camera as THREE.PerspectiveCamera;
-
-    const leftSnap: CameraSnapshot = {
+    const snap: CameraSnapshot = {
       position:   [cam.position.x, cam.position.y, cam.position.z],
       quaternion: [cam.quaternion.x, cam.quaternion.y, cam.quaternion.z, cam.quaternion.w],
       fov: cam.fov,
     };
-    // Right camera: same position, rotated 180° around scene Y to face the right crop row
-    const sceneUp = new THREE.Vector3(0, -1, 0);
-    const q = leftSnap.quaternion;
-    const rightQ = new THREE.Quaternion(q[0], q[1], q[2], q[3]);
-    rightQ.premultiply(new THREE.Quaternion().setFromAxisAngle(sceneUp, Math.PI));
-    const rightSnap: CameraSnapshot = {
-      position:   leftSnap.position,
-      quaternion: [rightQ.x, rightQ.y, rightQ.z, rightQ.w],
-      fov: leftSnap.fov,
-    };
-    setCalib(c => ({ ...c, leftCamera: leftSnap, rightCamera: rightSnap, flightY: liveHeight }));
+
+    if (angleRow === 'left') {
+      setCalib(c => ({ ...c, leftCamera: snap, flightY: liveHeight }));
+      // Move to right row — re-enter angle mode for right crop
+      const c = calibRef.current;
+      if (c.flightStart && c.leftCrop && c.rightCrop) {
+        stopAngleMode();
+        enterAngleMode(c.flightStart, c.leftCrop, c.rightCrop, 'right');
+      }
+    } else {
+      setCalib(c => ({ ...c, rightCamera: snap, flightY: liveHeight }));
+    }
   };
 
   const cancelCalibration = () => {
@@ -532,12 +603,6 @@ export default function Overlay() {
 
   // ── Derived values ────────────────────────────────────────────────────────
 
-  const derivedFrameWidth = (() => {
-    if (!calib.leftCamera || !calib.leftCrop) return null;
-    const dist = new THREE.Vector3(...calib.leftCamera.position)
-      .distanceTo(new THREE.Vector3(...calib.leftCrop));
-    return computeFrameWidth(calib.leftCamera.fov, dist, window.innerWidth / window.innerHeight);
-  })();
 
   const canSave = !!(calib.leftCamera && calib.rightCamera &&
     calib.flightStart && calib.flightEnd && calib.leftCrop && calib.rightCrop);
@@ -644,25 +709,43 @@ export default function Overlay() {
           <div className="bg-black/80 backdrop-blur-sm border border-white/15 rounded-2xl px-6 py-4 flex flex-col items-center gap-3" style={{ minWidth: 400 }}>
             <div className="text-white/40 text-[10px] uppercase tracking-widest">Step 2 of 2 — Drone Height & Zoom</div>
 
+            {/* Row indicator */}
+            <div className="flex items-center gap-3 w-full justify-center">
+              <div className="flex flex-col items-center gap-1">
+                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold transition-colors
+                  ${calib.leftCamera ? 'bg-green-500 text-white' : angleRow === 'left' ? 'bg-white text-black' : 'bg-white/10 text-white/30'}`}>
+                  {calib.leftCamera ? '✓' : '1'}
+                </span>
+                <span className={`text-[9px] font-mono ${angleRow === 'left' ? 'text-teal-400' : calib.leftCamera ? 'text-green-400' : 'text-white/30'}`}>Left Row</span>
+              </div>
+              <div className="w-8 h-px bg-white/20" />
+              <div className="flex flex-col items-center gap-1">
+                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold transition-colors
+                  ${calib.rightCamera ? 'bg-green-500 text-white' : angleRow === 'right' ? 'bg-white text-black' : 'bg-white/10 text-white/30'}`}>
+                  {calib.rightCamera ? '✓' : '2'}
+                </span>
+                <span className={`text-[9px] font-mono ${angleRow === 'right' ? 'text-purple-400' : calib.rightCamera ? 'text-green-400' : 'text-white/30'}`}>Right Row</span>
+              </div>
+            </div>
+
             <p className="text-white/70 text-xs text-center font-mono leading-relaxed">
-              View is locked perpendicular to the flight line.<br />
-              <kbd className="bg-white/10 px-1 rounded">W</kbd> / <kbd className="bg-white/10 px-1 rounded">S</kbd> moves up/down in world space. Scroll to zoom.<br />
-              Click <span className="text-yellow-300">"Set Angle"</span> when the frame covers the crop rows correctly.
+              Framing <span className={angleRow === 'left' ? 'text-teal-400' : 'text-purple-400'}>{angleRow} crop row</span><br />
+              <kbd className="bg-white/10 px-1 rounded">W</kbd>/<kbd className="bg-white/10 px-1 rounded">S</kbd> up/down &nbsp;
+              <kbd className="bg-white/10 px-1 rounded">A</kbd>/<kbd className="bg-white/10 px-1 rounded">D</kbd> forward/back &nbsp;
+              <kbd className="bg-white/10 px-1 rounded">Y</kbd>/<kbd className="bg-white/10 px-1 rounded">U</kbd> zoom
             </p>
 
-            <div className="text-[10px] font-mono text-white/50 text-center flex flex-col gap-0.5">
-              <span>Height above ground: <span className="text-white">{liveHeight.toFixed(3)}</span></span>
-              {calib.leftCamera && derivedFrameWidth !== null && (
-                <span>Frame width: <span className="text-green-400">{derivedFrameWidth.toFixed(3)}</span> world units</span>
-              )}
+            <div className="text-[10px] font-mono text-white/50 text-center">
+              <span>Height: <span className="text-white">{liveHeight.toFixed(3)}</span></span>
             </div>
 
             <div className="flex gap-2 w-full">
               <button onClick={confirmAngle}
-                className="flex-1 py-2 rounded-lg bg-white/15 hover:bg-white/25 text-white text-xs font-mono transition-colors">
-                Set Angle
+                className={`flex-1 py-2 rounded-lg text-white text-xs font-mono transition-colors ${
+                  angleRow === 'left' ? 'bg-teal-700/50 hover:bg-teal-700/70 border border-teal-500/40' : 'bg-purple-700/50 hover:bg-purple-700/70 border border-purple-500/40'
+                }`}>
+                {angleRow === 'left' ? 'Set Left Row →' : 'Set Right Row ✓'}
               </button>
-              {calib.leftCamera && <span className="flex items-center text-green-400 text-[10px] font-mono px-2">✓ set</span>}
             </div>
 
             <div className="flex gap-4 w-full">
