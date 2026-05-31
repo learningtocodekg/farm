@@ -46,7 +46,7 @@ if GEMINI_API_KEY:
     os.environ["GOOGLE_API_KEY"] = GEMINI_API_KEY   # ADK uses GOOGLE_API_KEY
 
 APP_NAME = "harveteye_farm_agent"
-MODEL = "gemini-2.0-flash"
+MODEL = "gemini-1.5-flash"
 
 RESEARCH_INSTRUCTION = """
 You are HarvestEye's expert agricultural research assistant with deep knowledge in:

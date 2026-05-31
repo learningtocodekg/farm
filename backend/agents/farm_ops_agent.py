@@ -70,7 +70,7 @@ if GEMINI_API_KEY:
     os.environ["GOOGLE_API_KEY"] = GEMINI_API_KEY
 
 APP_NAME = "harveteye_ops_agent"
-MODEL    = "gemini-2.0-flash"
+MODEL    = "gemini-1.5-flash"
 
 # ── Shared HTTP client ─────────────────────────────────────────────────────────
 _http_headers = {"Authorization": f"Bearer {FARM_API_KEY}"} if FARM_API_KEY else {}

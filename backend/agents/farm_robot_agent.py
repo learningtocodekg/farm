@@ -43,7 +43,7 @@ if GEMINI_API_KEY:
     os.environ["GOOGLE_API_KEY"] = GEMINI_API_KEY
 
 APP_NAME = "harvesteye_robot_agent"
-MODEL    = "gemini-2.0-flash"
+MODEL    = "gemini-1.5-flash"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

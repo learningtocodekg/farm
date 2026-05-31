@@ -36,7 +36,7 @@ app.include_router(robot_router, prefix="/api/robot")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-2.0-flash:generateContent"
+    "gemini-1.5-flash:generateContent"
 )
 
 FARM_ANALYSIS_PROMPT = """You are an expert agricultural AI assistant analyzing farm photos.
