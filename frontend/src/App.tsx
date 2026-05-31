@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import Overlay from './Overlay';
 import WeedMarkers from './WeedMarkers';
-import DroneScannerDemo from './components/DroneScannerDemo';
+import ReviewPage from './ReviewPage';
 
 export default function App() {
-  const [scannerOpen, setScannerOpen] = useState(false);
-
+  if (window.location.pathname === '/review') {
+    return <ReviewPage />;
+  }
   return (
     <>
       <Overlay />

@@ -84,8 +84,8 @@ def main():
 
     # Flight line direction unit vector [dx, dz]
     fl = manifest.get("flightLine", {})
-    start, end = fl.get("start", [0, 0]), fl.get("end", [0, 0])
-    dx, dz = end[0] - start[0], end[1] - start[1]
+    start, end = fl.get("start", [0, 0, 0]), fl.get("end", [0, 0, 0])
+    dx, dz = end[0] - start[0], end[2] - start[2]
     length = (dx**2 + dz**2) ** 0.5 or 1.0
     flight_line_dir = [dx / length, dz / length]
 
