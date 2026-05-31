@@ -2,6 +2,8 @@
 
 > **QuackHacks 2026** — AI-powered precision agriculture platform built with real-world farm data.
 
+Google Cloud Run Deployment: https://frontend-1001552662140.us-west2.run.app/
+
 HarvestEye is an intelligent farm monitoring and analysis system that combines **3D Gaussian Splatting** visualization with a **dual-agent Gemini AI architecture** to give farmers actionable, real-time insights on crop health, weed threats, soil conditions, and environmental conditions — all rendered in an immersive 3D farm interface.
 
 We went **in person to multiple farms** to collect real-world data to power the platform.
