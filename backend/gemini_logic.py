@@ -9,6 +9,53 @@ from fastapi import APIRouter, File, UploadFile, HTTPException
 
 router = APIRouter()
 
+REPORT_PROMPT = """You are an expert agricultural AI assistant.
+Generate a comprehensive farm health report based on typical sensor data (Moisture, Nutrient, Temperature, Weed Control).
+Output your response as a valid JSON object following this exact schema:
+{
+  "analyst": "string",
+  "markdownText": "string (A detailed markdown report with headings, bullet points, and actionable recommendations)",
+  "scores": {
+    "overall": {
+      "value": number (0-100),
+      "max": 100,
+      "description": "string"
+    },
+    "categories": [
+      {
+        "id": "moisture",
+        "title": "Moisture Index",
+        "score": number,
+        "max": 100,
+        "status": "string"
+      },
+      {
+        "id": "nutrient",
+        "title": "Nutrient Balance",
+        "score": number,
+        "max": 100,
+        "status": "string"
+      },
+      {
+        "id": "temperature",
+        "title": "Temperature Stability",
+        "score": number,
+        "max": 100,
+        "status": "string"
+      },
+      {
+        "id": "weed",
+        "title": "Weed Control",
+        "score": number,
+        "max": 100,
+        "status": "string"
+      }
+    ]
+  }
+}
+Return ONLY the raw JSON object, without any markdown formatting blocks like ```json.
+"""
+
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
@@ -157,3 +204,35 @@ async def analyze_photos(photos: List[UploadFile] = File(...)):
         "total_points": len(photos) // 4,
         "results": results,
     }
+
+
+@router.get("/report")
+async def generate_report():
+    if not GEMINI_API_KEY:
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY environment variable is not set.")
+
+    payload = {
+        "contents": [{"parts": [{"text": REPORT_PROMPT}]}],
+        "generationConfig": {
+            "temperature": 0.7,
+            "responseMimeType": "application/json",
+        },
+    }
+    url = f"{GEMINI_URL}?key={GEMINI_API_KEY}"
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(url, json=payload, timeout=60.0)
+            response.raise_for_status()
+            data = response.json()
+            text = (
+                data.get("candidates", [{}])[0]
+                .get("content", {})
+                .get("parts", [{}])[0]
+                .get("text", "{}")
+            )
+            return json.loads(text)
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(status_code=e.response.status_code, detail=f"Gemini API error: {e.response.text}")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))

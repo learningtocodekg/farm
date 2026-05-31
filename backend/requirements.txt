@@ -5,3 +5,4 @@ Pillow
 httpx
 python-multipart
 google-adk
+python-dotenv

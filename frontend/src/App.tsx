@@ -1,15 +1,14 @@
 import { useState } from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Overlay from './Overlay';
 import WeedMarkers from './WeedMarkers';
 import ReviewPage from './ReviewPage';
+import Report from './Report';
 import DroneScannerDemo from './components/DroneScannerDemo';
 
-export default function App() {
+function MainViewer() {
   const [scannerOpen, setScannerOpen] = useState(false);
 
-  if (window.location.pathname === '/review') {
-    return <ReviewPage />;
-  }
   return (
     <>
       <Overlay />
@@ -51,5 +50,17 @@ export default function App() {
         </div>
       )}
     </>
+  );
+}
+
+export default function App() {
+  return (
+    <Router>
+      <Routes>
+        <Route path="/" element={<MainViewer />} />
+        <Route path="/review" element={<ReviewPage />} />
+        <Route path="/report" element={<Report />} />
+      </Routes>
+    </Router>
   );
 }
