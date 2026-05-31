@@ -13,7 +13,7 @@ const viewer = new GS3D.Viewer({
   initialCameraLookAt: [0, 0, 0],
   gpuAcceleratedSort: false,
   sharedMemoryForWorkers: false,
-  antialiased: false,
+  antialiased: true,
   selfDrivenMode: true,
   dynamicScene: false,
 });
@@ -22,9 +22,9 @@ const viewer = new GS3D.Viewer({
 
 viewer
   .addSplatScene('/scene.ply', {
-    splatAlphaRemovalThreshold: 12,
+    splatAlphaRemovalThreshold: 1,
     showLoadingUI: false,
-    progressiveLoad: true,
+    progressiveLoad: false,
   })
   .then(() => {
     viewer.start();

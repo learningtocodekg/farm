@@ -1,79 +1,91 @@
 /**
  * Headless drone flyover frame capture.
- * Reads flight-path.json, launches Puppeteer, moves the camera along the
- * flight line in two passes (left-facing, right-facing), and saves a PNG
- * per frame + manifest.json.
+ * Reads flight-path.json (3-waypoint format), fits a line through each side's
+ * waypoints, walks the camera along that line between the saved start/end,
+ * and saves a PNG per frame + manifest.json with full per-frame unproject data.
  *
  * Run: node scripts/capture.js
- * Prereqs: npm install puppeteer  (run once inside scripts/ or project root)
  * The Vite dev server must be running on http://localhost:5173.
  */
 
 const puppeteer = require('puppeteer');
-const fs = require('fs');
-const path = require('path');
+const fs        = require('fs');
+const path      = require('path');
 
-const FLIGHT_PATH = path.resolve(__dirname, '../frontend/public/flight-path.json');
-const FRAMES_DIR = path.resolve(__dirname, 'frames');
-const VIEWPORT = { width: 1280, height: 720 };
-const RENDER_SETTLE_MS = 400; // ms to wait after moving camera before screenshot
+const FLIGHT_PATH   = path.resolve(__dirname, '../frontend/public/flight-path.json');
+const FRAMES_DIR    = path.resolve(__dirname, 'frames');
+const VIEWPORT      = { width: 1280, height: 720 };
+const RENDER_SETTLE = 400;
 
-function lerp(a, b, t) {
-  return a + (b - a) * t;
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ── math ──────────────────────────────────────────────────────────────────────
+
+function dot3(a, b)   { return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]; }
+function sub3(a, b)   { return [a[0]-b[0], a[1]-b[1], a[2]-b[2]]; }
+function add3(a, b)   { return [a[0]+b[0], a[1]+b[1], a[2]+b[2]]; }
+function scale3(v, s) { return [v[0]*s, v[1]*s, v[2]*s]; }
+function len3(v)      { return Math.sqrt(v[0]*v[0]+v[1]*v[1]+v[2]*v[2]); }
+function norm3(v)     { const l = len3(v); return l < 1e-10 ? v : scale3(v, 1/l); }
+
+// Power-iteration PCA — dominant direction through waypoint positions
+function fitLine(waypoints) {
+  const pts = waypoints.map(w => w.position);
+  const n   = pts.length;
+  const cx  = pts.reduce((a,p) => a+p[0], 0)/n;
+  const cy  = pts.reduce((a,p) => a+p[1], 0)/n;
+  const cz  = pts.reduce((a,p) => a+p[2], 0)/n;
+  const c   = [cx, cy, cz];
+  const centered = pts.map(p => sub3(p, c));
+
+  let dir = centered.reduce((best, v) => len3(v) > len3(best) ? v : best, centered[0]).slice();
+  dir = norm3(dir);
+  for (let i = 0; i < 64; i++) {
+    const next = [0,0,0];
+    for (const v of centered) {
+      const d = dot3(v, dir);
+      next[0] += v[0]*d; next[1] += v[1]*d; next[2] += v[2]*d;
+    }
+    if (len3(next) < 1e-10) break;
+    dir = norm3(next);
+  }
+  return { origin: c, dir };
 }
 
-async function sleep(ms) {
-  return new Promise(r => setTimeout(r, ms));
-}
+function projectT(p, origin, dir) { return dot3(sub3(p, origin), dir); }
 
-async function capturePass(page, config, passSuffix, cameraConfig) {
-  const { flightLine, frameWidth } = config;
-  const start = flightLine.start; // [x, y, z]
-  const end = flightLine.end;     // [x, y, z]
+// ── capture pass ──────────────────────────────────────────────────────────────
 
-  const dx = end[0] - start[0];
-  const dz = end[2] - start[2];
-  const totalDist = Math.sqrt(dx * dx + dz * dz);
-  const MAX_STEP = 3.0; // cap step size so we always get enough frames
-  const effectiveWidth = Math.min(frameWidth, MAX_STEP);
-  const numFrames = Math.max(1, Math.floor(totalDist / effectiveWidth));
-  const step = totalDist / numFrames;
+async function capturePass(page, sideConfig, waypoints, side) {
+  const line = fitLine(waypoints);
 
-  // Flight line direction unit vector in XZ
-  const fwdX = dx / totalDist;
-  const fwdZ = dz / totalDist;
+  // Project saved start/end onto the fitted line to get t range
+  const tStart = projectT(sideConfig.flightLine.start, line.origin, line.dir);
+  const tEnd   = projectT(sideConfig.flightLine.end,   line.origin, line.dir);
+  const tMin   = Math.min(tStart, tEnd);
+  const tMax   = Math.max(tStart, tEnd);
+  const totalDist = tMax - tMin;
 
-  // The calibration camera has a perpendicular offset from the flight line.
-  // Project the calibration camera position onto the perp axis to get that offset,
-  // then add it to every frame position so the drone flies parallel to the row.
-  const perpX = -fwdZ;
-  const perpZ = fwdX;
-  const basePerpOffset =
-    (cameraConfig.position[0] - start[0]) * perpX +
-    (cameraConfig.position[2] - start[2]) * perpZ;
+  const MAX_STEP = 3.0;
+  const effectiveStep = Math.min(sideConfig.frameWidth, MAX_STEP);
+  const numFrames = Math.max(1, Math.floor(totalDist / effectiveStep));
 
-  console.log(`  Pass ${passSuffix}: ${numFrames} frames, step=${step.toFixed(3)}, total dist=${totalDist.toFixed(3)}, perpOffset=${basePerpOffset.toFixed(3)}`);
+  // Use middle waypoint orientation for all frames
+  const nomSnap = waypoints[1];
 
-  // Disable orbit controls for the whole pass so they don't fight the set quaternion
+  console.log(`  Pass ${side}: ${numFrames} frames, dist=${totalDist.toFixed(3)}, frameWidth=${sideConfig.frameWidth.toFixed(3)}`);
+
   await page.evaluate(() => {
     const v = window.gsplatViewer;
     if (v?.controls) v.controls.enabled = false;
   });
 
-  const manifest = [];
+  const frames = [];
 
   for (let i = 0; i < numFrames; i++) {
-    const t = (i + 0.5) / numFrames; // center of each frame cell
-    const flX = lerp(start[0], end[0], t);
-    const flZ = lerp(start[2], end[2], t);
-    // Apply the perpendicular offset so camera flies beside the row, not on the flight line
-    const x = flX + basePerpOffset * perpX;
-    const z = flZ + basePerpOffset * perpZ;
-    const y = cameraConfig.position[1]; // use calibrated height, not flightLine.y
-    const pos = [x, y, z];
+    const t   = tMin + (i + 0.5) * (totalDist / numFrames);
+    const pos = add3(line.origin, scale3(line.dir, t));
 
-    // Move camera to this position with the saved orientation.
-    // Disable controls so they don't fight the manually set quaternion.
     await page.evaluate(({ pos, quat, fov }) => {
       const v = window.gsplatViewer;
       if (!v) return;
@@ -83,27 +95,39 @@ async function capturePass(page, config, passSuffix, cameraConfig) {
       v.camera.fov = fov;
       v.camera.updateProjectionMatrix();
       v.camera.updateMatrixWorld();
-    }, { pos, quat: cameraConfig.quaternion, fov: cameraConfig.fov });
+    }, { pos, quat: nomSnap.quaternion, fov: nomSnap.fov });
 
-    await sleep(RENDER_SETTLE_MS);
+    await sleep(RENDER_SETTLE);
 
-    const frameIdx = String(i).padStart(4, '0');
-    const filename = `frame_${passSuffix}_${frameIdx}.png`;
-    const filepath = path.join(FRAMES_DIR, filename);
-    await page.screenshot({ path: filepath });
+    const idx      = String(i).padStart(4, '0');
+    const filename = `frame_${side}_${idx}.png`;
+    await page.screenshot({ path: path.join(FRAMES_DIR, filename) });
 
-    manifest.push({ frame: filename, position: pos, pass: passSuffix });
-    console.log(`    [${i + 1}/${numFrames}] ${filename} @ (${pos.map(n => n.toFixed(3)).join(', ')})`);
+    frames.push({
+      frame:      filename,
+      pass:       side,
+      // Full camera state for pixel→3D unprojection
+      position:   pos,
+      quaternion: nomSnap.quaternion,
+      fov:        nomSnap.fov,
+      aspect:     VIEWPORT.width / VIEWPORT.height,
+      // Which crop plane to intersect for this side
+      cropPlane:  sideConfig.cropPlane,
+      cropPt:     sideConfig.cropPt,
+    });
+
+    console.log(`    [${i+1}/${numFrames}] ${filename} @ (${pos.map(n => n.toFixed(3)).join(', ')})`);
   }
 
-  // Re-enable controls after pass
   await page.evaluate(() => {
     const v = window.gsplatViewer;
     if (v?.controls) v.controls.enabled = true;
   });
 
-  return manifest;
+  return frames;
 }
+
+// ── main ─────────────────────────────────────────────────────────────────────
 
 (async () => {
   if (!fs.existsSync(FLIGHT_PATH)) {
@@ -112,11 +136,19 @@ async function capturePass(page, config, passSuffix, cameraConfig) {
   }
 
   const config = JSON.parse(fs.readFileSync(FLIGHT_PATH, 'utf8'));
+
+  if (!config.leftWaypoints || config.leftWaypoints.length !== 3 ||
+      !config.rightWaypoints || config.rightWaypoints.length !== 3 ||
+      !config.left?.flightLine?.start || !config.right?.flightLine?.start) {
+    console.error('flight-path.json is incomplete or in the old format. Re-run calibration in the UI.');
+    process.exit(1);
+  }
+
   fs.mkdirSync(FRAMES_DIR, { recursive: true });
 
   console.log('Launching browser…');
   const browser = await puppeteer.launch({
-    headless: false, // must be headed — headless can't render WebGL gaussian splats
+    headless: false,
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
   });
 
@@ -126,49 +158,56 @@ async function capturePass(page, config, passSuffix, cameraConfig) {
   console.log('Opening http://localhost:5173 …');
   await page.goto('http://localhost:5173', { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-  // Wait for splat:loaded, with a fallback poll in case the event already fired
   console.log('Waiting for splat to load…');
   await page.evaluate(() =>
     new Promise((resolve, reject) => {
-      // Already loaded
       if (window._splatLoaded) return resolve();
-      // Listen for the event
       window.addEventListener('splat:loaded', resolve, { once: true });
       window.addEventListener('splat:error', () => reject(new Error('splat load error')), { once: true });
-      // Fallback: poll every 500ms for up to 120s
       const start = Date.now();
       const poll = setInterval(() => {
         if (window._splatLoaded) { clearInterval(poll); resolve(); }
-        if (Date.now() - start > 120000) { clearInterval(poll); reject(new Error('splat load timeout')); }
+        if (Date.now() - start > 120000) { clearInterval(poll); reject(new Error('timeout')); }
       }, 500);
     })
   );
   console.log('Splat loaded. Starting capture…');
 
-  const allManifest = [];
+  const allFrames = [];
 
-  // Left-facing pass
   console.log('\n--- Left pass ---');
-  const leftManifest = await capturePass(page, config, 'left', config.leftCamera);
-  allManifest.push(...leftManifest);
+  allFrames.push(...await capturePass(page, config.left, config.leftWaypoints, 'left'));
 
-  // Right-facing pass
   console.log('\n--- Right pass ---');
-  const rightManifest = await capturePass(page, config, 'right', config.rightCamera);
-  allManifest.push(...rightManifest);
+  allFrames.push(...await capturePass(page, config.right, config.rightWaypoints, 'right'));
 
   await browser.close();
 
-  const manifestPath = path.join(FRAMES_DIR, 'manifest.json');
-  fs.writeFileSync(manifestPath, JSON.stringify({
-    frameWidth: config.frameWidth,
-    flightLine: config.flightLine,
-    crops: config.crops,
-    viewport: VIEWPORT,
-    frames: allManifest,
-  }, null, 2));
+  // manifest.json — everything needed to map pixel → 3D world point offline
+  const manifest = {
+    viewport:       VIEWPORT,
+    leftWaypoints:  config.leftWaypoints,
+    rightWaypoints: config.rightWaypoints,
+    left:  config.left,   // flightLine, cropPt, cropPlane, flightDir, frameWidth
+    right: config.right,
+    frames: allFrames,
+    // Unproject recipe:
+    //   Given pixel (px, py) in a frame:
+    //   1. ndcX = (px / viewport.width)  * 2 - 1
+    //      ndcY = (py / viewport.height) * 2 - 1   (note: may need -1 * for y depending on convention)
+    //   2. Build ray from frame.position through NDC using frame.fov + frame.aspect + frame.quaternion
+    //   3. Intersect ray with frame.cropPlane: t = (d - dot(n, rayOrigin)) / dot(n, rayDir)
+    //   4. worldPoint = rayOrigin + t * rayDir
+    unprojectRecipe: {
+      planeEquation: 'dot(cropPlane.normal, point) = cropPlane.d',
+      t:             't = (cropPlane.d - dot(normal, rayOrigin)) / dot(normal, rayDir)',
+      worldPoint:    'rayOrigin + t * rayDir',
+    },
+  };
 
-  console.log(`\nDone. ${allManifest.length} frames captured.`);
+  const manifestPath = path.join(FRAMES_DIR, 'manifest.json');
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+
+  console.log(`\nDone. ${allFrames.length} frames captured.`);
   console.log(`Manifest: ${manifestPath}`);
-  console.log('Next: python scripts/analyze.py');
 })();

@@ -22,28 +22,42 @@ MANIFEST_FILE = FRAMES_DIR / "manifest.json"
 REVIEW_LOG_FILE = FRAMES_DIR / "review-log.json"
 
 
-class CameraConfig(BaseModel):
+class CameraSnapshot(BaseModel):
     position: list[float]
     quaternion: list[float]
     fov: float
 
 
-class FlightLineConfig(BaseModel):
+class SideFlightLine(BaseModel):
     start: list[float]
     end: list[float]
-    y: float
 
 
-class CropOffsets(BaseModel):
-    leftOffset: float   # perpendicular distance from flight line to left crop row
-    rightOffset: float  # perpendicular distance from flight line to right crop row
+class CropPlane(BaseModel):
+    normal: list[float]
+    d: float
+
+
+class SideConfig(BaseModel):
+    flightLine: SideFlightLine
+    cropPt: list[float]
+    cropPlane: CropPlane
+    flightDir: list[float]
+    frameWidth: float
+
+
+class Viewport(BaseModel):
+    width: float
+    height: float
+    aspect: float
+
 
 class FlightPathConfig(BaseModel):
-    leftCamera: CameraConfig
-    rightCamera: CameraConfig
-    flightLine: FlightLineConfig
-    crops: CropOffsets
-    frameWidth: float
+    leftWaypoints: list[CameraSnapshot]
+    rightWaypoints: list[CameraSnapshot]
+    left: SideConfig
+    right: SideConfig
+    viewport: Viewport
 
 
 @app.get("/api/health")

@@ -2,144 +2,147 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 
 type SplatStatus = 'loading' | 'loaded' | 'error';
-type CalibStep = 'idle' | 'picking' | 'angle';
-type PickPhase = 'start' | 'end' | 'leftCrop' | 'rightCrop';
+
+// Modes for the current interaction
+type CalibMode =
+  | 'idle'
+  | 'left_cal'        // capturing 3 left waypoints
+  | 'right_cal'       // capturing 3 right waypoints
+  | 'left_line'       // top-down: set left line start/end + offset
+  | 'right_line';     // top-down: set right line start/end + offset
+
+// Sub-phases within a line-setup mode
+type LinePhase = 'start' | 'end' | 'offset';
 
 interface CameraSnapshot {
-  position: [number, number, number];
+  position:   [number, number, number];
   quaternion: [number, number, number, number];
-  fov: number;
+  fov:        number;
 }
 
-interface CalibState {
-  upVector: THREE.Vector3 | null;       // derived from ground points after 4th pick
-  flightStart: [number, number, number] | null;
-  flightEnd:   [number, number, number] | null;
-  leftCrop:    [number, number, number] | null;
-  rightCrop:   [number, number, number] | null;
-  flightY: number;
-  leftCamera:  CameraSnapshot | null;
-  rightCamera: CameraSnapshot | null;
+interface LineConfig {
+  start:  [number, number, number] | null; // point on fitted line
+  end:    [number, number, number] | null; // point on fitted line
+  cropPt: [number, number, number] | null; // perpendicular crop row click
 }
 
-function fmt2(n: number) { return n.toFixed(2); }
+interface CalibData {
+  leftWaypoints:  CameraSnapshot[];
+  rightWaypoints: CameraSnapshot[];
+  left:  LineConfig;
+  right: LineConfig;
+}
+
+const EMPTY_LINE: LineConfig = { start: null, end: null, cropPt: null };
+
 function getViewer() { return (window as any).gsplatViewer ?? null; }
 
-// Bootstrap "up" used only during Step 1 picking — matches the viewer's cameraUp setting.
-// The real upVector is computed from ground points after all 4 picks complete.
-const BOOTSTRAP_UP = new THREE.Vector3(0, -1, 0);
+// ── math helpers ──────────────────────────────────────────────────────────────
 
-// ── 3D ground-plane helpers (all use the user-defined upVector) ───────────────
+function dot3(a: number[], b: number[]) { return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]; }
+function sub3(a: number[], b: number[]): [number,number,number] { return [a[0]-b[0], a[1]-b[1], a[2]-b[2]]; }
+function add3(a: number[], b: number[]): [number,number,number] { return [a[0]+b[0], a[1]+b[1], a[2]+b[2]]; }
+function scale3(v: number[], s: number): [number,number,number] { return [v[0]*s, v[1]*s, v[2]*s]; }
+function len3(v: number[]) { return Math.sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]); }
+function norm3(v: number[]): [number,number,number] { const l = len3(v); return l < 1e-10 ? [v[0],v[1],v[2]] as [number,number,number] : scale3(v, 1/l); }
 
-// Project a 3D point onto the ground plane (plane with given normal through origin),
-// then measure signed distance from 'start' along the perpendicular-to-flight direction.
-// "Perpendicular to flight" lives IN the ground plane.
+// Power-iteration PCA line fit through waypoint positions
+function fitLine(snaps: CameraSnapshot[]): { origin: [number,number,number]; dir: [number,number,number] } {
+  const pts = snaps.map(s => s.position as number[]);
+  const n = pts.length;
+  const cx = pts.reduce((a,p) => a+p[0], 0)/n;
+  const cy = pts.reduce((a,p) => a+p[1], 0)/n;
+  const cz = pts.reduce((a,p) => a+p[2], 0)/n;
+  const center = [cx,cy,cz];
+  const centered = pts.map(p => sub3(p, center));
 
-function flightDir3(
-  start: [number, number, number],
-  end:   [number, number, number],
-  up: THREE.Vector3,
-): THREE.Vector3 {
-  const d = new THREE.Vector3(
-    end[0] - start[0], end[1] - start[1], end[2] - start[2],
-  );
-  // Remove any component along up so direction lies in ground plane
-  d.addScaledVector(up, -d.dot(up)).normalize();
-  return d;
+  let dir = centered.reduce((best, v) => len3(v) > len3(best) ? v : best, centered[0]).slice() as number[];
+  dir = norm3(dir);
+  for (let i = 0; i < 64; i++) {
+    const next = [0,0,0];
+    for (const v of centered) { const d = dot3(v,dir); next[0]+=v[0]*d; next[1]+=v[1]*d; next[2]+=v[2]*d; }
+    if (len3(next) < 1e-10) break;
+    dir = norm3(next);
+  }
+  return { origin: [cx,cy,cz], dir: dir as [number,number,number] };
 }
 
-function perpDir3(
-  start: [number, number, number],
-  end:   [number, number, number],
-  up: THREE.Vector3,
-): THREE.Vector3 {
-  const fwd = flightDir3(start, end, up);
-  // perp = up × fwd  (gives a vector in the ground plane, 90° to fwd)
-  return new THREE.Vector3().crossVectors(up, fwd).normalize();
+// Signed distance of p from line origin along dir
+function projectT(p: number[], origin: number[], dir: number[]) { return dot3(sub3(p, origin), dir); }
+
+// Project a world point onto the fitted line, return the snapped 3D position
+function snapToLine(p: [number,number,number], origin: [number,number,number], dir: [number,number,number]): [number,number,number] {
+  const t = projectT(p, origin, dir);
+  return add3(origin, scale3(dir, t));
 }
 
-// Project point p onto the perpendicular ray through 'start' in the ground plane.
-// Returns the snapped 3D position.
-function projectOntoPerpRay(
-  p: [number, number, number],
-  start: [number, number, number],
-  end:   [number, number, number],
-  up: THREE.Vector3,
-): [number, number, number] {
-  const perp = perpDir3(start, end, up);
-  const rel = new THREE.Vector3(p[0] - start[0], p[1] - start[1], p[2] - start[2]);
-  const t = rel.dot(perp);
-  return [
-    start[0] + perp.x * t,
-    start[1] + perp.y * t,
-    start[2] + perp.z * t,
-  ];
+// Perpendicular direction to dir in XZ plane
+function perpXZ(dir: [number,number,number]): [number,number,number] {
+  return norm3([-dir[2], 0, dir[0]]);
 }
 
-// Signed distance from start along the perp direction
-function signedPerpDist(
-  p:     [number, number, number],
-  start: [number, number, number],
-  end:   [number, number, number],
-  up: THREE.Vector3,
-): number {
-  const perp = perpDir3(start, end, up);
-  return (
-    (p[0] - start[0]) * perp.x +
-    (p[1] - start[1]) * perp.y +
-    (p[2] - start[2]) * perp.z
-  );
+// Project p onto the perpendicular line through lineOrigin
+function snapToPerp(
+  p: [number,number,number],
+  lineOrigin: [number,number,number],
+  lineDir: [number,number,number],
+): [number,number,number] {
+  const perp = perpXZ(lineDir);
+  const rel  = sub3(p, lineOrigin);
+  const t    = dot3(rel, perp);
+  return [lineOrigin[0] + perp[0]*t, lineOrigin[1], lineOrigin[2] + perp[2]*t];
 }
 
-// ── Screen helpers ────────────────────────────────────────────────────────────
+// ── screen helpers ────────────────────────────────────────────────────────────
 
 function worldToScreen(
-  x: number, y: number, z: number,
-  camera: THREE.PerspectiveCamera,
+  p: [number,number,number],
+  cam: THREE.PerspectiveCamera,
   w: number, h: number,
-): [number, number] | null {
-  const v = new THREE.Vector3(x, y, z).project(camera);
+): [number,number] | null {
+  const v = new THREE.Vector3(...p).project(cam);
   if (v.z > 1) return null;
-  return [(v.x + 1) / 2 * w, (1 - v.y) / 2 * h];
+  return [(v.x+1)/2*w, (1-v.y)/2*h];
 }
 
-function computeFrameWidth(fovDeg: number, distance: number, aspect: number): number {
-  const fovRad = (fovDeg * Math.PI) / 180;
-  return 2 * distance * Math.tan(fovRad / 2) * aspect;
+const BOOTSTRAP_UP = new THREE.Vector3(0,-1,0);
+
+function screenToWorld(clientX: number, clientY: number, rect: DOMRect): [number,number,number] | null {
+  const viewer = getViewer();
+  if (!viewer) return null;
+  const cam = viewer.camera as THREE.PerspectiveCamera;
+  const ndcX = ((clientX-rect.left)/rect.width)*2-1;
+  const ndcY = -((clientY-rect.top)/rect.height)*2+1;
+  const ray = new THREE.Raycaster();
+  ray.setFromCamera(new THREE.Vector2(ndcX, ndcY), cam);
+  const plane = new THREE.Plane(BOOTSTRAP_UP.clone(), 0);
+  const hit = new THREE.Vector3();
+  if (!ray.ray.intersectPlane(plane, hit)) return null;
+  return [hit.x, hit.y, hit.z];
 }
 
-const PICK_LABELS: Record<PickPhase, string> = {
-  start:     'Click the START of the flight line',
-  end:       'Click the END of the flight line',
-  leftCrop:  'Click on the LEFT crop row (on the perpendicular line)',
-  rightCrop: 'Click on the RIGHT crop row (on the perpendicular line)',
-};
-const PICK_ORDER: PickPhase[] = ['start', 'end', 'leftCrop', 'rightCrop'];
-
-// ── Component ─────────────────────────────────────────────────────────────────
+// ── component ─────────────────────────────────────────────────────────────────
 
 export default function Overlay() {
-  const [status, setStatus]       = useState<SplatStatus>('loading');
-  const [calibStep, setCalibStep] = useState<CalibStep>('idle');
-  const [pickPhase, setPickPhase] = useState<PickPhase>('start');
-  const [calib, setCalib]         = useState<CalibState>({
-    upVector: null,
-    flightStart: null, flightEnd: null,
-    leftCrop: null, rightCrop: null,
-    flightY: 0,
-    leftCamera: null, rightCamera: null,
+  const [status, setStatus]         = useState<SplatStatus>('loading');
+  const [mode, setMode]             = useState<CalibMode>('idle');
+  const [linePhase, setLinePhase]   = useState<LinePhase>('start');
+  const [calib, setCalib]           = useState<CalibData>({
+    leftWaypoints: [], rightWaypoints: [],
+    left: { ...EMPTY_LINE }, right: { ...EMPTY_LINE },
   });
-  const [liveHeight, setLiveHeight] = useState<number>(0);
-  const [angleRow, setAngleRow] = useState<'left' | 'right'>('left');
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
-  const [mouseWorld, setMouseWorld] = useState<[number, number, number] | null>(null);
+  const [mouseWorld, setMouseWorld] = useState<[number,number,number] | null>(null);
   const [svgSize, setSvgSize]       = useState({ w: window.innerWidth, h: window.innerHeight });
+  const [saveStatus, setSaveStatus] = useState<'idle'|'saving'|'saved'|'error'>('idle');
 
-  const cropPoleRef     = useRef<THREE.Mesh | null>(null);
-  const guideObjectsRef = useRef<THREE.Object3D[]>([]);
-  const rafRef           = useRef<number | null>(null);
-  const calibRef     = useRef(calib);
+  const calibRef = useRef(calib);
   useEffect(() => { calibRef.current = calib; }, [calib]);
+  const modeRef = useRef(mode);
+  useEffect(() => { modeRef.current = mode; }, [mode]);
+
+  // Fitted lines derived from waypoints (null until 3 waypoints captured)
+  const leftLine  = calib.leftWaypoints.length  === 3 ? fitLine(calib.leftWaypoints)  : null;
+  const rightLine = calib.rightWaypoints.length === 3 ? fitLine(calib.rightWaypoints) : null;
 
   useEffect(() => {
     const onResize = () => setSvgSize({ w: window.innerWidth, h: window.innerHeight });
@@ -151,299 +154,270 @@ export default function Overlay() {
     const onLoaded = () => setStatus('loaded');
     const onError  = () => setStatus('error');
     window.addEventListener('splat:loaded', onLoaded);
-    window.addEventListener('splat:error', onError);
+    window.addEventListener('splat:error',  onError);
     return () => {
       window.removeEventListener('splat:loaded', onLoaded);
-      window.removeEventListener('splat:error', onError);
+      window.removeEventListener('splat:error',  onError);
     };
   }, []);
 
-  useEffect(() => {
-    if (calibStep === 'idle') stopAngleMode();
-  }, [calibStep]);
+  // ── viewer controls ───────────────────────────────────────────────────────
 
-  // ── screenToWorld ─────────────────────────────────────────────────────────
-  // Intersects the pick ray with the ground plane (normal = up, through origin).
-
-  function screenToWorld(
-    clientX: number,
-    clientY: number,
-    rect: DOMRect,
-    upVec: THREE.Vector3,
-  ): [number, number, number] | null {
-    const viewer = getViewer();
-    if (!viewer) return null;
-    const cam = viewer.camera as THREE.PerspectiveCamera;
-
-    const ndcX = ((clientX - rect.left) / rect.width)  * 2 - 1;
-    const ndcY = -((clientY - rect.top)  / rect.height) * 2 + 1;
-    const ray = new THREE.Raycaster();
-    ray.setFromCamera(new THREE.Vector2(ndcX, ndcY), cam);
-
-    const plane = new THREE.Plane(upVec.clone().normalize(), 0);
-    const hit = new THREE.Vector3();
-    if (!ray.ray.intersectPlane(plane, hit)) return null;
-    return [hit.x, hit.y, hit.z];
-  }
-
-  // ── Step 1: picking ───────────────────────────────────────────────────────
-
-  const startPicking = () => {
-    enterPickingStep();
-  };
-
-  function enterPickingStep() {
+  function enterTopDown() {
     const viewer = getViewer();
     if (!viewer) return;
     if (viewer.controls) viewer.controls.enabled = false;
-
-    // Top-down: camera at (0,-15,0) — negative Y is "above" in this scene (cameraUp=[0,-1,0]).
-    // camera.up points toward -Z so the view is oriented with the farm rows vertical on screen.
     viewer.camera.position.set(0, -15, 0);
     viewer.camera.up.set(0, 0, -1);
     viewer.camera.lookAt(0, 0, 0);
     viewer.camera.updateProjectionMatrix();
     viewer.camera.updateMatrixWorld();
-
-    setCalibStep('picking');
-    setPickPhase('start');
-    setMouseWorld(null);
-    setCalib(c => ({
-      ...c,
-      upVector: null,
-      flightStart: null, flightEnd: null,
-      leftCrop: null, rightCrop: null,
-      flightY: 0, leftCamera: null, rightCamera: null,
-    }));
   }
 
-  const handlePickerMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    setMouseWorld(screenToWorld(e.clientX, e.clientY, rect, BOOTSTRAP_UP));
-  };
-
-  const handlePickerClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const xyz = screenToWorld(e.clientX, e.clientY, rect, BOOTSTRAP_UP);
-    if (!xyz) return;
-
-    setPickPhase(prev => {
-      if (prev === 'start') {
-        setCalib(c => ({ ...c, flightStart: xyz }));
-        return 'end';
-      }
-      if (prev === 'end') {
-        setCalib(c => ({ ...c, flightEnd: xyz }));
-        return 'leftCrop';
-      }
-      if (prev === 'leftCrop') {
-        // Can't snap yet — no upVector. Store raw; will snap after upVector is derived.
-        setCalib(c => ({ ...c, leftCrop: xyz }));
-        return 'rightCrop';
-      }
-      // rightCrop — derive upVector from the 3 ground points, then snap crops and enter angle mode
-      setCalib(current => {
-        if (!current.flightStart || !current.flightEnd || !current.leftCrop) {
-          return { ...current, rightCrop: xyz };
-        }
-
-        // Derive ground-plane normal from the 3 picked ground points
-        const v1 = new THREE.Vector3(
-          current.flightEnd[0] - current.flightStart[0],
-          current.flightEnd[1] - current.flightStart[1],
-          current.flightEnd[2] - current.flightStart[2],
-        );
-        const v2 = new THREE.Vector3(
-          current.leftCrop[0] - current.flightStart[0],
-          current.leftCrop[1] - current.flightStart[1],
-          current.leftCrop[2] - current.flightStart[2],
-        );
-        const derived = new THREE.Vector3().crossVectors(v1, v2).normalize();
-        // Make it point toward the camera (camera is at y=-15, so pick the sign with negative Y)
-        if (derived.y > 0) derived.negate();
-        const upVec = derived;
-
-        // Now snap both crop picks onto the perpendicular ray using the real upVector
-        const leftSnapped  = projectOntoPerpRay(current.leftCrop, current.flightStart, current.flightEnd, upVec);
-        const rightSnapped = projectOntoPerpRay(xyz,              current.flightStart, current.flightEnd, upVec);
-
-        const next = { ...current, upVector: upVec, leftCrop: leftSnapped, rightCrop: rightSnapped };
-        enterAngleMode(next.flightStart!, leftSnapped, rightSnapped);
-        return next;
-      });
-      setCalibStep('angle');
-      return 'rightCrop';
-    });
-  };
-
-  // ── Step 2: angle mode ────────────────────────────────────────────────────
-
-  function enterAngleMode(
-    flightStart: [number, number, number],
-    leftCropPt:  [number, number, number],
-    rightCropPt: [number, number, number],
-    row: 'left' | 'right' = 'left',
-  ) {
-    const viewer = getViewer();
-    if (!viewer) return;
-
-    // Full free-roam — user positions the camera manually just like normal exploration
-    if (viewer.controls) viewer.controls.enabled = true;
-
-    const leftPt  = new THREE.Vector3(...leftCropPt);
-    const rightPt = new THREE.Vector3(...rightCropPt);
-    const groundY = (leftCropPt[1] + rightCropPt[1] + flightStart[1]) / 3;
-    const perpXZ = new THREE.Vector3(leftPt.x - rightPt.x, 0, leftPt.z - rightPt.z).normalize();
-    const trueFlightXZ = new THREE.Vector3().crossVectors(perpXZ, new THREE.Vector3(0, 1, 0)).normalize();
-
-    setAngleRow(row);
-    setLiveHeight(viewer.camera.position.y);
-
-    // Draw guide lines so user can see where the crop rows are
-    guideObjectsRef.current.forEach(o => viewer.threeScene?.remove(o));
-    guideObjectsRef.current = [];
-    if (viewer.threeScene) {
-      const FAR = 20;
-      const addLine = (a: THREE.Vector3, b: THREE.Vector3, color: number) => {
-        const geo = new THREE.BufferGeometry().setFromPoints([a, b]);
-        const mat = new THREE.LineBasicMaterial({ color, depthTest: false, linewidth: 2 });
-        const line = new THREE.Line(geo, mat);
-        line.renderOrder = 1000;
-        viewer.threeScene.add(line);
-        guideObjectsRef.current.push(line);
-      };
-      const leftColor  = 0x00ffcc;
-      const rightColor = 0xc084fc;
-      addLine(
-        new THREE.Vector3(leftPt.x, groundY, leftPt.z).addScaledVector(trueFlightXZ,  FAR),
-        new THREE.Vector3(leftPt.x, groundY, leftPt.z).addScaledVector(trueFlightXZ, -FAR),
-        leftColor,
-      );
-      addLine(
-        new THREE.Vector3(leftPt.x, groundY - 3, leftPt.z),
-        new THREE.Vector3(leftPt.x, groundY + 3, leftPt.z),
-        leftColor,
-      );
-      addLine(
-        new THREE.Vector3(rightPt.x, groundY, rightPt.z).addScaledVector(trueFlightXZ,  FAR),
-        new THREE.Vector3(rightPt.x, groundY, rightPt.z).addScaledVector(trueFlightXZ, -FAR),
-        rightColor,
-      );
-      addLine(
-        new THREE.Vector3(rightPt.x, groundY - 3, rightPt.z),
-        new THREE.Vector3(rightPt.x, groundY + 3, rightPt.z),
-        rightColor,
-      );
-    }
-
-    // Poll camera position for the height display
-    const poll = () => {
-      const v = getViewer();
-      if (v) setLiveHeight(v.camera.position.y);
-      rafRef.current = requestAnimationFrame(poll);
-    };
-    rafRef.current = requestAnimationFrame(poll);
-  }
-
-  function stopAngleMode() {
-    if (rafRef.current) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
+  function exitTopDown() {
     const viewer = getViewer();
     if (viewer?.controls) viewer.controls.enabled = true;
-    if (cropPoleRef.current) {
-      if (viewer?.threeScene) viewer.threeScene.remove(cropPoleRef.current);
-      cropPoleRef.current.geometry.dispose();
-      (cropPoleRef.current.material as THREE.Material).dispose();
-      cropPoleRef.current = null;
-    }
-    guideObjectsRef.current.forEach(o => {
-      if (viewer?.threeScene) viewer.threeScene.remove(o);
-      const line = o as THREE.Line;
-      line.geometry?.dispose();
-      (line.material as THREE.Material)?.dispose();
-    });
-    guideObjectsRef.current = [];
   }
 
-  // ── Confirm / cancel / save ───────────────────────────────────────────────
-
-  const confirmAngle = () => {
+  function snapCamera(): CameraSnapshot {
     const viewer = getViewer();
-    if (!viewer) return;
     const cam = viewer.camera as THREE.PerspectiveCamera;
-    const snap: CameraSnapshot = {
+    return {
       position:   [cam.position.x, cam.position.y, cam.position.z],
       quaternion: [cam.quaternion.x, cam.quaternion.y, cam.quaternion.z, cam.quaternion.w],
-      fov: cam.fov,
+      fov:        cam.fov,
+    };
+  }
+
+  // ── row calibration ───────────────────────────────────────────────────────
+
+  function startRowCal(row: 'left' | 'right') {
+    exitTopDown();
+    setCalib(c => ({
+      ...c,
+      ...(row === 'left' ? { leftWaypoints: [] } : { rightWaypoints: [] }),
+    }));
+    setMode(row === 'left' ? 'left_cal' : 'right_cal');
+  }
+
+  function captureWaypoint() {
+    const snap = snapCamera();
+    setCalib(c => {
+      if (modeRef.current === 'left_cal') {
+        const next = [...c.leftWaypoints, snap] as CameraSnapshot[];
+        if (next.length === 3) setMode('idle');
+        return { ...c, leftWaypoints: next };
+      } else {
+        const next = [...c.rightWaypoints, snap] as CameraSnapshot[];
+        if (next.length === 3) setMode('idle');
+        return { ...c, rightWaypoints: next };
+      }
+    });
+  }
+
+  // ── line + offset setup ───────────────────────────────────────────────────
+
+  function startLinePick(side: 'left' | 'right') {
+    setCalib(c => ({
+      ...c,
+      ...(side === 'left' ? { left: { ...EMPTY_LINE } } : { right: { ...EMPTY_LINE } }),
+    }));
+    setLinePhase('start');
+    setMouseWorld(null);
+    enterTopDown();
+    setMode(side === 'left' ? 'left_line' : 'right_line');
+  }
+
+  function handleTopDownClick(e: React.MouseEvent<HTMLDivElement>) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const raw  = screenToWorld(e.clientX, e.clientY, rect);
+    if (!raw) return;
+
+    const side = modeRef.current === 'left_line' ? 'left' : 'right';
+    const line = side === 'left' ? leftLine : rightLine;
+    if (!line) return;
+
+    if (linePhase === 'start') {
+      const snapped = snapToLine(raw, line.origin, line.dir);
+      setCalib(c => ({ ...c, [side]: { ...c[side], start: snapped } }));
+      setLinePhase('end');
+
+    } else if (linePhase === 'end') {
+      const snapped = snapToLine(raw, line.origin, line.dir);
+      setCalib(c => ({ ...c, [side]: { ...c[side], end: snapped } }));
+      setLinePhase('offset');
+
+    } else {
+      // offset — snap to perpendicular through the midpoint of start/end
+      const c = calibRef.current;
+      const lineConfig = c[side];
+      if (!lineConfig.start || !lineConfig.end) return;
+      const mid: [number,number,number] = [
+        (lineConfig.start[0] + lineConfig.end[0]) / 2,
+        (lineConfig.start[1] + lineConfig.end[1]) / 2,
+        (lineConfig.start[2] + lineConfig.end[2]) / 2,
+      ];
+      const snapped = snapToPerp(raw, mid, line.dir);
+      setCalib(cv => ({ ...cv, [side]: { ...cv[side], cropPt: snapped } }));
+      exitTopDown();
+      setMode('idle');
+    }
+  }
+
+  function handleTopDownMouseMove(e: React.MouseEvent<HTMLDivElement>) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setMouseWorld(screenToWorld(e.clientX, e.clientY, rect));
+  }
+
+  // ── SVG overlay ───────────────────────────────────────────────────────────
+
+  const svgOverlay = (() => {
+    const viewer = getViewer();
+    if (!viewer) return null;
+    const cam  = viewer.camera as THREE.PerspectiveCamera;
+    const { w, h } = svgSize;
+    const els: React.ReactNode[] = [];
+    const isTopDown = mode === 'left_line' || mode === 'right_line';
+    if (!isTopDown) return null;
+
+    const activeSide = mode === 'left_line' ? 'left' : 'right';
+    const line = activeSide === 'left' ? leftLine : rightLine;
+    const lineConfig = calib[activeSide];
+
+    const dot = (key: string, p: [number,number,number], fill: string, r = 7) => {
+      const s = worldToScreen(p, cam, w, h);
+      if (!s) return null;
+      return <circle key={key} cx={s[0]} cy={s[1]} r={r} fill={fill} stroke="white" strokeWidth={1.5} />;
     };
 
-    if (angleRow === 'left') {
-      setCalib(c => ({ ...c, leftCamera: snap, flightY: liveHeight }));
-      const c = calibRef.current;
-      console.log('[confirmAngle] switching to right row');
-      console.log('[confirmAngle] flightStart:', c.flightStart);
-      console.log('[confirmAngle] leftCrop:', c.leftCrop);
-      console.log('[confirmAngle] rightCrop:', c.rightCrop);
-      if (c.flightStart && c.leftCrop && c.rightCrop) {
-        if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
-        const v = getViewer();
-        guideObjectsRef.current.forEach(o => { v?.threeScene?.remove(o); });
-        guideObjectsRef.current = [];
-        enterAngleMode(c.flightStart, c.leftCrop, c.rightCrop, 'right');
-      } else {
-        console.warn('[confirmAngle] missing calibration data — cannot enter right row mode');
+    if (line) {
+      // Draw the full fitted line extended far in both directions
+      const FAR = 30;
+      const lineColor = activeSide === 'left' ? '#34d399' : '#f472b6';
+      const p1 = worldToScreen(add3(line.origin, scale3(line.dir,  FAR)), cam, w, h);
+      const p2 = worldToScreen(add3(line.origin, scale3(line.dir, -FAR)), cam, w, h);
+      if (p1 && p2) els.push(
+        <line key="fitted" x1={p1[0]} y1={p1[1]} x2={p2[0]} y2={p2[1]}
+          stroke={lineColor} strokeWidth={1} strokeDasharray="6 4" opacity={0.5} />
+      );
+
+      // Waypoint dots on the line
+      const snaps = activeSide === 'left' ? calib.leftWaypoints : calib.rightWaypoints;
+      snaps.forEach((s, i) => {
+        const snappedPos = snapToLine(s.position as [number,number,number], line.origin, line.dir);
+        els.push(dot(`wp-${i}`, snappedPos, lineColor, 5));
+      });
+
+      // Start / end markers
+      if (lineConfig.start) {
+        els.push(dot('ls', lineConfig.start, '#ffffff'));
+        if (linePhase === 'end' && mouseWorld) {
+          const ms = worldToScreen(snapToLine(mouseWorld, line.origin, line.dir), cam, w, h);
+          const ss = worldToScreen(lineConfig.start, cam, w, h);
+          if (ms && ss) els.push(
+            <line key="live-end" x1={ss[0]} y1={ss[1]} x2={ms[0]} y2={ms[1]}
+              stroke="#ffffff" strokeWidth={1.5} strokeDasharray="5 3" opacity={0.6} />
+          );
+        }
       }
-    } else {
-      setCalib(c => ({ ...c, rightCamera: snap, flightY: liveHeight }));
+      if (lineConfig.end) {
+        els.push(dot('le', lineConfig.end, '#ffffff'));
+        // Draw the solid start→end segment
+        const ss = worldToScreen(lineConfig.start!, cam, w, h);
+        const se = worldToScreen(lineConfig.end,   cam, w, h);
+        if (ss && se) els.push(
+          <line key="seg" x1={ss[0]} y1={ss[1]} x2={se[0]} y2={se[1]}
+            stroke="#ffffff" strokeWidth={2.5} opacity={0.9} />
+        );
+      }
+
+      // Perpendicular line for offset phase
+      if (linePhase === 'offset' && lineConfig.start && lineConfig.end) {
+        const mid: [number,number,number] = [
+          (lineConfig.start[0] + lineConfig.end[0]) / 2,
+          (lineConfig.start[1] + lineConfig.end[1]) / 2,
+          (lineConfig.start[2] + lineConfig.end[2]) / 2,
+        ];
+        const perp = perpXZ(line.dir);
+        const FAR2 = 20;
+        const pp1 = worldToScreen(add3(mid, scale3(perp,  FAR2)), cam, w, h);
+        const pp2 = worldToScreen(add3(mid, scale3(perp, -FAR2)), cam, w, h);
+        if (pp1 && pp2) els.push(
+          <line key="perp" x1={pp1[0]} y1={pp1[1]} x2={pp2[0]} y2={pp2[1]}
+            stroke="#00e5ff" strokeWidth={1.5} strokeDasharray="8 4" opacity={0.8} />
+        );
+        if (mouseWorld) {
+          const snappedMouse = snapToPerp(mouseWorld, mid, line.dir);
+          els.push(dot('perp-live', snappedMouse, '#00e5ff', 5));
+        }
+      }
+
+      // Crop point
+      if (lineConfig.cropPt) els.push(dot('crop', lineConfig.cropPt, '#00e5ff'));
     }
-  };
 
-  const cancelCalibration = () => {
-    stopAngleMode();
-    const viewer = getViewer();
-    if (viewer?.controls) viewer.controls.enabled = true;
-    setCalibStep('idle');
-    setPickPhase('start');
-    setMouseWorld(null);
-  };
+    return els;
+  })();
 
-  const finishCalibration = () => {
-    stopAngleMode();
-    setCalibStep('idle');
-    setMouseWorld(null);
-  };
+  // ── save ─────────────────────────────────────────────────────────────────
 
-  const saveFlightPath = async () => {
+  const canSave =
+    calib.leftWaypoints.length  === 3 && calib.rightWaypoints.length === 3 &&
+    calib.left.start  && calib.left.end  && calib.left.cropPt &&
+    calib.right.start && calib.right.end && calib.right.cropPt;
+
+  async function save() {
     if (!canSave) return;
     setSaveStatus('saving');
     try {
-      const up = BOOTSTRAP_UP;
-      const camPos = new THREE.Vector3(...calib.leftCamera!.position);
-      const leftPt = new THREE.Vector3(...calib.leftCrop!);
-      const camToCropDist = camPos.distanceTo(leftPt);
-      const aspect = window.innerWidth / window.innerHeight;
-      const frameWidth = computeFrameWidth(calib.leftCamera!.fov, camToCropDist, aspect);
+      const c = calibRef.current;
+      const lLine = fitLine(c.leftWaypoints);
+      const rLine = fitLine(c.rightWaypoints);
+
+      // Crop plane per side — vertical plane through cropPt, normal = flightDir
+      function cropPlane(cropPt: [number,number,number], dir: [number,number,number]) {
+        const n = norm3([dir[0], 0, dir[2]]) as [number,number,number];
+        const d = dot3(n, cropPt);
+        return { normal: n, d };
+      }
+
+      // Frame width from middle waypoint FOV + dist to crop row
+      function frameWidth(snaps: CameraSnapshot[], cropPt: [number,number,number]) {
+        const nom = snaps[1];
+        const dist = len3(sub3(nom.position, cropPt));
+        const aspect = window.innerWidth / window.innerHeight;
+        const fovRad = (nom.fov * Math.PI) / 180;
+        return 2 * dist * Math.tan(fovRad / 2) * aspect;
+      }
 
       const body = {
-        leftCamera:  calib.leftCamera,
-        rightCamera: calib.rightCamera,
-        flightLine: {
-          start: calib.flightStart,
-          end:   calib.flightEnd,
-          y:     calib.flightY,
+        leftWaypoints:  c.leftWaypoints,
+        rightWaypoints: c.rightWaypoints,
+        left: {
+          flightLine:  { start: c.left.start,  end: c.left.end  },
+          cropPt:      c.left.cropPt,
+          cropPlane:   cropPlane(c.left.cropPt!,  lLine.dir),
+          flightDir:   lLine.dir,
+          frameWidth:  frameWidth(c.leftWaypoints, c.left.cropPt!),
         },
-        crops: {
-          leftOffset:  signedPerpDist(calib.leftCrop!,  calib.flightStart!, calib.flightEnd!, up),
-          rightOffset: signedPerpDist(calib.rightCrop!, calib.flightStart!, calib.flightEnd!, up),
+        right: {
+          flightLine:  { start: c.right.start, end: c.right.end },
+          cropPt:      c.right.cropPt,
+          cropPlane:   cropPlane(c.right.cropPt!, rLine.dir),
+          flightDir:   rLine.dir,
+          frameWidth:  frameWidth(c.rightWaypoints, c.right.cropPt!),
         },
-        frameWidth,
+        viewport: {
+          width:  window.innerWidth,
+          height: window.innerHeight,
+          aspect: window.innerWidth / window.innerHeight,
+        },
       };
+
       const res = await fetch('/api/save-flight-path', {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body:    JSON.stringify(body),
       });
       if (!res.ok) throw new Error(await res.text());
       setSaveStatus('saved');
@@ -452,77 +426,20 @@ export default function Overlay() {
       setSaveStatus('error');
       setTimeout(() => setSaveStatus('idle'), 3000);
     }
-  };
+  }
 
-  // ── SVG overlay ───────────────────────────────────────────────────────────
+  // ── render ────────────────────────────────────────────────────────────────
 
-  const svgOverlay = (() => {
-    if (calibStep !== 'picking') return null;
-    const viewer = getViewer();
-    if (!viewer) return null;
-    const cam = viewer.camera as THREE.PerspectiveCamera;
-    const { w, h } = svgSize;
-    // Use BOOTSTRAP_UP for the perp line preview during picking (upVector not derived yet)
-    const up = BOOTSTRAP_UP;
-    const els: React.ReactNode[] = [];
-
-    const dot = (key: string, x: number, y: number, z: number, fill: string) => {
-      const s = worldToScreen(x, y, z, cam, w, h);
-      if (!s) return null;
-      return <circle key={key} cx={s[0]} cy={s[1]} r={7} fill={fill} stroke="white" strokeWidth={1.5} />;
-    };
-
-    if (calib.flightStart)
-      els.push(dot('s-dot', ...calib.flightStart, '#ff69b4'));
-
-    if (pickPhase === 'end' && calib.flightStart && mouseWorld) {
-      const s = worldToScreen(...calib.flightStart, cam, w, h);
-      const m = worldToScreen(...mouseWorld, cam, w, h);
-      if (s && m) els.push(
-        <line key="line-live" x1={s[0]} y1={s[1]} x2={m[0]} y2={m[1]}
-          stroke="#ff69b4" strokeWidth={1.5} strokeDasharray="6 3" />
-      );
-    }
-
-    if (calib.flightStart && calib.flightEnd) {
-      const s = worldToScreen(...calib.flightStart, cam, w, h);
-      const e = worldToScreen(...calib.flightEnd,   cam, w, h);
-      if (s && e) {
-        els.push(<line key="line" x1={s[0]} y1={s[1]} x2={e[0]} y2={e[1]} stroke="#ff69b4" strokeWidth={2} />);
-        els.push(dot('e-dot', ...calib.flightEnd, '#ff69b4'));
-      }
-    }
-
-    // Perp line through start — extend along perpDir3 in both directions
-    if (calib.flightStart && calib.flightEnd && (pickPhase === 'leftCrop' || pickPhase === 'rightCrop')) {
-      const perp = perpDir3(calib.flightStart, calib.flightEnd, up);
-      const FAR = 50;
-      const sx = calib.flightStart[0], sy = calib.flightStart[1], sz = calib.flightStart[2];
-      const p1 = worldToScreen(sx + perp.x * FAR, sy + perp.y * FAR, sz + perp.z * FAR, cam, w, h);
-      const p2 = worldToScreen(sx - perp.x * FAR, sy - perp.y * FAR, sz - perp.z * FAR, cam, w, h);
-      if (p1 && p2) els.push(
-        <line key="perp" x1={p1[0]} y1={p1[1]} x2={p2[0]} y2={p2[1]}
-          stroke="#00e5ff" strokeWidth={1.5} strokeDasharray="8 4" opacity={0.8} />
-      );
-    }
-
-    if (calib.leftCrop)  els.push(dot('l-dot', ...calib.leftCrop,  '#60a5fa'));
-    if (calib.rightCrop) els.push(dot('r-dot', ...calib.rightCrop, '#c084fc'));
-
-    return els;
-  })();
-
-  // ── Derived values ────────────────────────────────────────────────────────
-
-
-  const canSave = !!(calib.leftCamera && calib.rightCamera &&
-    calib.flightStart && calib.flightEnd && calib.leftCrop && calib.rightCrop);
-
+  const isTopDown = mode === 'left_line' || mode === 'right_line';
   const statusLabel = { loading: 'Loading…', loaded: 'Ready', error: 'Failed to load' }[status];
   const statusColor = { loading: 'text-yellow-400', loaded: 'text-green-400', error: 'text-red-400' }[status];
-  const phaseIdx = PICK_ORDER.indexOf(pickPhase);
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  const activeSide  = mode === 'left_line' ? 'left' : mode === 'right_line' ? 'right' : null;
+  const phaseLabel: Record<LinePhase, string> = {
+    start:  'Click to set scan START',
+    end:    'Click to set scan END',
+    offset: 'Click the crop row (cyan line)',
+  };
 
   return (
     <>
@@ -530,54 +447,46 @@ export default function Overlay() {
       <div data-ui="true"
         className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-2 px-4 py-1.5 rounded-full bg-black/60 backdrop-blur-sm border border-white/10 text-sm font-mono select-none">
         <span className={statusColor}>{statusLabel}</span>
-        {status === 'loaded' && <>
-          <span className="text-white/20">·</span>
-          <span className="text-white/50 capitalize">
-            {calibStep === 'idle'    ? 'Ready'
-              : calibStep === 'picking' ? 'Calibrating (Picking)'
-              : 'Calibrating (Angle)'}
-          </span>
-        </>}
       </div>
 
-      {/* Calibrate button */}
-      {calibStep === 'idle' && status === 'loaded' && (
-        <button data-ui="true" onClick={startPicking}
-          className="absolute top-4 right-4 px-3 py-1.5 rounded-lg bg-black/60 backdrop-blur-sm border border-white/10 text-sm font-mono text-white/70 hover:text-white hover:border-white/30 transition-colors select-none">
-          Calibrate
-        </button>
-      )}
-
-      {/* SVG overlay (step 1) */}
-      {calibStep === 'picking' && (
+      {/* SVG overlay */}
+      {isTopDown && (
         <svg style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 10 }}
           width={svgSize.w} height={svgSize.h}>
           {svgOverlay}
         </svg>
       )}
 
-      {/* Click blocker (step 1) */}
-      {calibStep === 'picking' && (
-        <div onClick={handlePickerClick} onMouseMove={handlePickerMouseMove}
-          style={{ position: 'fixed', inset: 0, cursor: 'crosshair', pointerEvents: 'auto', zIndex: 9 }} />
+      {/* Click blocker for top-down */}
+      {isTopDown && (
+        <div
+          onClick={handleTopDownClick}
+          onMouseMove={handleTopDownMouseMove}
+          style={{ position: 'fixed', inset: 0, cursor: 'crosshair', pointerEvents: 'auto', zIndex: 9 }}
+        />
       )}
 
-      {/* ── Step 1 panel ── */}
-      {calibStep === 'picking' && (
-        <div data-ui="true" className="absolute inset-x-0 bottom-8 flex justify-center pointer-events-none" style={{ zIndex: 20 }}>
-          <div className="bg-black/80 backdrop-blur-sm border border-white/15 rounded-2xl px-6 py-4 flex flex-col items-center gap-3 pointer-events-auto" style={{ minWidth: 420 }}>
-            <div className="text-white/40 text-[10px] uppercase tracking-widest">Step 1 of 2 — Map Points</div>
+      {/* Top-down instruction banner */}
+      {isTopDown && (
+        <div data-ui="true"
+          className="absolute inset-x-0 bottom-8 flex justify-center pointer-events-none" style={{ zIndex: 20 }}>
+          <div className="bg-black/80 backdrop-blur-sm border border-white/15 rounded-2xl px-6 py-4 flex flex-col items-center gap-2 pointer-events-auto">
+            <div className="text-white/40 text-[10px] uppercase tracking-widest">
+              {activeSide} row — {linePhase}
+            </div>
 
-            <div className="flex items-center gap-2 w-full justify-center">
-              {PICK_ORDER.map((p, i) => {
-                const done   = PICK_ORDER.indexOf(p) < phaseIdx;
-                const active = p === pickPhase;
-                const labels = { start: 'Start', end: 'End', leftCrop: 'L.Crop', rightCrop: 'R.Crop' };
+            {/* Phase steps */}
+            <div className="flex items-center gap-3">
+              {(['start', 'end', 'offset'] as LinePhase[]).map((p, i) => {
+                const phases: LinePhase[] = ['start', 'end', 'offset'];
+                const done   = phases.indexOf(p) < phases.indexOf(linePhase);
+                const active = p === linePhase;
+                const labels = { start: 'Start', end: 'End', offset: 'Offset' };
                 return (
                   <div key={p} className="flex items-center gap-2">
-                    {i > 0 && <div className="w-6 h-px bg-white/20" />}
+                    {i > 0 && <div className="w-5 h-px bg-white/20" />}
                     <div className="flex flex-col items-center gap-1">
-                      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold transition-colors
+                      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold
                         ${done ? 'bg-green-500 text-white' : active ? 'bg-white text-black' : 'bg-white/10 text-white/30'}`}>
                         {done ? '✓' : i + 1}
                       </span>
@@ -590,98 +499,157 @@ export default function Overlay() {
               })}
             </div>
 
-            <p className="text-white/70 text-xs text-center font-mono">{PICK_LABELS[pickPhase]}</p>
-
-            {(pickPhase === 'leftCrop' || pickPhase === 'rightCrop') && (
-              <p className="text-cyan-400/70 text-[10px] text-center font-mono">
-                Cyan line = perpendicular to flight line. Click anywhere — point snaps to the line.
-              </p>
+            <p className="text-white/70 text-xs font-mono">{phaseLabel[linePhase]}</p>
+            {linePhase === 'offset' && (
+              <p className="text-cyan-400/70 text-[10px] font-mono">Snap to cyan perpendicular line</p>
             )}
 
-            <div className="flex gap-3 text-[10px] font-mono">
-              {calib.flightStart && <span className="text-pink-400">S({fmt2(calib.flightStart[0])},{fmt2(calib.flightStart[2])})</span>}
-              {calib.flightEnd   && <span className="text-pink-400">E({fmt2(calib.flightEnd[0])},{fmt2(calib.flightEnd[2])})</span>}
-              {calib.leftCrop    && <span className="text-blue-400">L({fmt2(calib.leftCrop[0])},{fmt2(calib.leftCrop[2])})</span>}
-            </div>
-
-            <button onClick={cancelCalibration} className="text-white/30 text-xs hover:text-white/60 transition-colors">Cancel</button>
+            <button onClick={() => { exitTopDown(); setMode('idle'); }}
+              className="text-white/30 text-xs hover:text-white/60 transition-colors mt-1">
+              Cancel
+            </button>
           </div>
         </div>
       )}
 
+      {/* ── Main control panel ── */}
+      {status === 'loaded' && !isTopDown && (
+        <div data-ui="true"
+          className="absolute top-4 right-4 flex flex-col gap-2 pointer-events-auto"
+          style={{ zIndex: 20, minWidth: 230 }}>
 
-      {/* ── Step 2 panel ── */}
-      {calibStep === 'angle' && (
-        <div data-ui="true" className="absolute inset-x-0 bottom-8 flex justify-center" style={{ zIndex: 20 }}>
-          <div className="bg-black/80 backdrop-blur-sm border border-white/15 rounded-2xl px-6 py-4 flex flex-col items-center gap-3" style={{ minWidth: 400 }}>
-            <div className="text-white/40 text-[10px] uppercase tracking-widest">Step 2 of 2 — Drone Height & Zoom</div>
+          {/* Left row */}
+          <SidePanel
+            label="Left Row"
+            accentClass="emerald"
+            waypoints={calib.leftWaypoints}
+            lineConfig={calib.left}
+            mode={mode}
+            calMode="left_cal"
+            lineMode="left_line"
+            hasFittedLine={!!leftLine}
+            onStartCal={() => startRowCal('left')}
+            onCapture={captureWaypoint}
+            onStartLine={() => startLinePick('left')}
+          />
 
-            {/* Row indicator */}
-            <div className="flex items-center gap-3 w-full justify-center">
-              <div className="flex flex-col items-center gap-1">
-                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold transition-colors
-                  ${calib.leftCamera ? 'bg-green-500 text-white' : angleRow === 'left' ? 'bg-white text-black' : 'bg-white/10 text-white/30'}`}>
-                  {calib.leftCamera ? '✓' : '1'}
-                </span>
-                <span className={`text-[9px] font-mono ${angleRow === 'left' ? 'text-teal-400' : calib.leftCamera ? 'text-green-400' : 'text-white/30'}`}>Left Row</span>
-              </div>
-              <div className="w-8 h-px bg-white/20" />
-              <div className="flex flex-col items-center gap-1">
-                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold transition-colors
-                  ${calib.rightCamera ? 'bg-green-500 text-white' : angleRow === 'right' ? 'bg-white text-black' : 'bg-white/10 text-white/30'}`}>
-                  {calib.rightCamera ? '✓' : '2'}
-                </span>
-                <span className={`text-[9px] font-mono ${angleRow === 'right' ? 'text-purple-400' : calib.rightCamera ? 'text-green-400' : 'text-white/30'}`}>Right Row</span>
-              </div>
+          {/* Right row */}
+          <SidePanel
+            label="Right Row"
+            accentClass="pink"
+            waypoints={calib.rightWaypoints}
+            lineConfig={calib.right}
+            mode={mode}
+            calMode="right_cal"
+            lineMode="right_line"
+            hasFittedLine={!!rightLine}
+            onStartCal={() => startRowCal('right')}
+            onCapture={captureWaypoint}
+            onStartLine={() => startLinePick('right')}
+          />
+
+          {/* Save */}
+          {canSave && (
+            <button onClick={save} disabled={saveStatus === 'saving'}
+              className={`py-2 rounded-xl text-sm font-mono transition-colors ${
+                saveStatus === 'saved' ? 'bg-green-600/60 text-green-200 border border-green-500/30' :
+                saveStatus === 'error' ? 'bg-red-600/60 text-red-200 border border-red-500/30' :
+                'bg-green-700/50 hover:bg-green-700/70 text-white border border-green-500/30'
+              }`}>
+              {saveStatus === 'saving' ? 'Saving…'
+                : saveStatus === 'saved'  ? '✓ Saved!'
+                : saveStatus === 'error'  ? '✗ Failed'
+                : 'Save Calibration'}
+            </button>
+          )}
+
+          {/* In-cal instructions */}
+          {(mode === 'left_cal' || mode === 'right_cal') && (
+            <div className="bg-black/60 border border-white/10 rounded-xl px-4 py-3 text-[11px] font-mono text-white/50 leading-relaxed">
+              Move camera to position, click<br />
+              <span className="text-white/30">Capture Position</span>.<br />
+              Repeat 3× along the row.
             </div>
-
-            <p className="text-white/70 text-xs text-center font-mono leading-relaxed">
-              Framing <span className={angleRow === 'left' ? 'text-teal-400' : 'text-purple-400'}>{angleRow} crop row</span><br />
-              <kbd className="bg-white/10 px-1 rounded">W</kbd>/<kbd className="bg-white/10 px-1 rounded">S</kbd> up/down &nbsp;
-              <kbd className="bg-white/10 px-1 rounded">A</kbd>/<kbd className="bg-white/10 px-1 rounded">D</kbd> forward/back &nbsp;
-              <kbd className="bg-white/10 px-1 rounded">Y</kbd>/<kbd className="bg-white/10 px-1 rounded">U</kbd> zoom
-            </p>
-
-            <div className="text-[10px] font-mono text-white/50 text-center">
-              <span>Height: <span className="text-white">{liveHeight.toFixed(3)}</span></span>
-            </div>
-
-            <div className="flex gap-2 w-full">
-              <button onClick={confirmAngle}
-                className={`flex-1 py-2 rounded-lg text-white text-xs font-mono transition-colors ${
-                  angleRow === 'left' ? 'bg-teal-700/50 hover:bg-teal-700/70 border border-teal-500/40' : 'bg-purple-700/50 hover:bg-purple-700/70 border border-purple-500/40'
-                }`}>
-                {angleRow === 'left' ? 'Set Left Row →' : 'Set Right Row ✓'}
-              </button>
-            </div>
-
-            <div className="flex gap-4 w-full">
-              {canSave && (
-                <button onClick={saveFlightPath} disabled={saveStatus === 'saving'}
-                  className={`flex-1 py-2 rounded-lg text-xs font-mono transition-colors ${
-                    saveStatus === 'saved' ? 'bg-green-600/60 text-green-200' :
-                    saveStatus === 'error' ? 'bg-red-600/60 text-red-200'   :
-                    'bg-green-700/40 hover:bg-green-700/60 text-white border border-green-500/30'
-                  }`}>
-                  {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? '✓ Saved!' : saveStatus === 'error' ? '✗ Failed' : 'Save flight-path.json'}
-                </button>
-              )}
-              <button onClick={finishCalibration}
-                className="flex-1 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white/60 text-xs font-mono transition-colors">
-                {canSave ? 'Done' : 'Cancel'}
-              </button>
-            </div>
-
-            <div className="flex gap-3 text-[10px] font-mono text-white/30 flex-wrap justify-center">
-              {calib.leftCrop && calib.flightStart && calib.flightEnd && <>
-                <span className="text-blue-400">L-offset: {signedPerpDist(calib.leftCrop, calib.flightStart, calib.flightEnd, BOOTSTRAP_UP).toFixed(3)}</span>
-                <span>·</span>
-                <span className="text-purple-400">R-offset: {calib.rightCrop ? signedPerpDist(calib.rightCrop, calib.flightStart, calib.flightEnd, BOOTSTRAP_UP).toFixed(3) : '—'}</span>
-              </>}
-            </div>
-          </div>
+          )}
         </div>
       )}
     </>
+  );
+}
+
+// ── SidePanel sub-component ───────────────────────────────────────────────────
+
+interface SidePanelProps {
+  label:        string;
+  accentClass:  'emerald' | 'pink';
+  waypoints:    CameraSnapshot[];
+  lineConfig:   LineConfig;
+  mode:         CalibMode;
+  calMode:      CalibMode;
+  lineMode:     CalibMode;
+  hasFittedLine: boolean;
+  onStartCal:   () => void;
+  onCapture:    () => void;
+  onStartLine:  () => void;
+}
+
+function SidePanel({
+  label, accentClass, waypoints, lineConfig, mode,
+  calMode, lineMode, hasFittedLine,
+  onStartCal, onCapture, onStartLine,
+}: SidePanelProps) {
+  const isCaling = mode === calMode;
+  const color = accentClass === 'emerald'
+    ? { dot: 'bg-emerald-500', btn: 'bg-emerald-600/60 hover:bg-emerald-600/80 border-emerald-500/40' }
+    : { dot: 'bg-pink-500',    btn: 'bg-pink-600/60    hover:bg-pink-600/80    border-pink-500/40'    };
+  const idle = mode === 'idle';
+
+  return (
+    <div className="bg-black/70 backdrop-blur-sm border border-white/10 rounded-xl px-4 py-3 flex flex-col gap-2">
+      <div className="text-white/40 text-[10px] uppercase tracking-widest">{label}</div>
+
+      {/* Waypoint dots */}
+      <div className="flex items-center gap-2">
+        {[0,1,2].map(i => (
+          <div key={i} className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold
+            ${waypoints.length > i ? `${color.dot} text-white` : 'bg-white/10 text-white/30'}`}>
+            {waypoints.length > i ? '✓' : i+1}
+          </div>
+        ))}
+        <span className="text-white/40 text-[10px] font-mono ml-1">{waypoints.length}/3</span>
+      </div>
+
+      {/* Cal button / capture button */}
+      {isCaling ? (
+        <button onClick={onCapture}
+          className={`py-1.5 rounded-lg text-white text-xs font-mono transition-colors border ${color.btn}`}>
+          Capture Position ({waypoints.length + 1}/3)
+        </button>
+      ) : (
+        <button onClick={onStartCal} disabled={!idle}
+          className="py-1.5 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 text-white/70 hover:text-white text-xs font-mono transition-colors">
+          {waypoints.length === 3 ? 'Re-calibrate' : 'Start Cal'}
+        </button>
+      )}
+
+      {/* Line setup — only available after 3 waypoints */}
+      {waypoints.length === 3 && (
+        <>
+          <div className="h-px bg-white/10" />
+          <button onClick={onStartLine} disabled={!idle}
+            className="py-1.5 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 text-white/70 hover:text-white text-xs font-mono transition-colors">
+            {lineConfig.cropPt ? 'Re-set Line & Offset' : 'Set Line & Offset'}
+          </button>
+          {lineConfig.start && lineConfig.end && lineConfig.cropPt && (
+            <div className="text-[10px] font-mono text-white/30 flex gap-2 flex-wrap">
+              <span>S({lineConfig.start[0].toFixed(1)},{lineConfig.start[2].toFixed(1)})</span>
+              <span>→</span>
+              <span>E({lineConfig.end[0].toFixed(1)},{lineConfig.end[2].toFixed(1)})</span>
+              <span className="text-cyan-400/60 ml-1">offset set</span>
+            </div>
+          )}
+        </>
+      )}
+    </div>
   );
 }
