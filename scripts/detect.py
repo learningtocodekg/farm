@@ -78,35 +78,20 @@ def draw_grid(img_bgr: np.ndarray) -> np.ndarray:
 # ---------------------------------------------------------------------------
 PROMPT = """\
 You are a precision agriculture AI analysing a vineyard image captured by a drone.
-The scene contains: vine plants in rows, bare tilled soil between the rows, and grass/groundcover at the edges.
-
-Identify anomalies in THREE categories. Be conservative — only mark something if you are highly confident.
-
-  - weed     : unwanted plant growth AT GROUND LEVEL, in the brown soil.
-               Weeds must be a VISIBLE PATCH of growth.
-               Do NOT mark grass, individual tiny green specks or small blades — only mark clearly visible structures resembling a flowering plant.
+The scene contains: vine plants in rows, under the vine plants is brown soil, and then between the rows is a grass patch.
+Your goal is to find weeds:  plant growth in the brown soil that is not the vine plant.
+               Do NOT mark grass, individual tiny green specks or small blades — only mark clearly, large, visible structures resembling a flowering plant.
                Do NOT mark bare tilled soil.
+               Around the weed would be brown soil.
 
-  - dry_spot : a large patch of YELLOWED, STRAW-COLOURED, or BROWN DYING grass/groundcover that is clearly
-               different and surrounded by healthy green grass. This is NOT bare tilled soil —
-               bare brown/grey soil is normal and should NOT be marked. Only mark patches where grass
-               that should be green is clearly dying or dead.
 
-  - pest     : highly confident evidence of pest or disease damage on vine leaves or stems ONLY.
-               Look for: irregular holes chewed in leaves, dark fungal spots or mildew patches,
-               unusual discolouration patterns, insect frass/droppings, or webbing.
-               Do NOT mark blurry edges, shadows, or normal leaf variation.
-               Only mark if damage is clearly visible and unambiguous. When in doubt, leave empty.
-
-Return ONLY a JSON object with three keys. Each key maps to an array of bounding boxes (may be empty []).
+Return ONLY a JSON object with one key "weed" mapping to an array of bounding boxes (may be empty []).
 Bounding box schema: {"x1": int, "y1": int, "x2": int, "y2": int}  (absolute pixels, top-left to bottom-right).
 Image dimensions will be provided in the prompt.
 
 Example:
 {
-  "weed":      [{"x1": 120, "y1": 340, "x2": 210, "y2": 410}],
-  "dry_spot":  [],
-  "pest":      []
+  "weed": [{"x1": 120, "y1": 340, "x2": 210, "y2": 410}]
 }
 
 Return ONLY the raw JSON object, no markdown fences, no explanation.
@@ -265,7 +250,7 @@ def main():
             parsed = json.loads(raw)
 
             found = 0
-            for anomaly_type in ("weed", "dry_spot", "pest"):
+            for anomaly_type in ("weed",):
                 boxes = parsed.get(anomaly_type, [])
                 if not isinstance(boxes, list):
                     continue
