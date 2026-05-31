@@ -1,8 +1,9 @@
 """
-Weed / dry-spot / pest detection pipeline.
+Two-step weed detection pipeline.
 
-  image -> saturation boost -> Gemini 2.5 Flash -> pixel bboxes -> 3D world positions
-  -> frontend/public/anomalies.json
+  Step 1: Full image -> Gemini -> bounding boxes of brown soil regions
+  Step 2: Each soil crop -> Gemini -> bounding boxes of weeds within that crop
+  Step 3: Map weed pixel coords back to full image -> 3D world positions
 
 Run:
     backend\\venv\\Scripts\\python.exe scripts/detect.py
@@ -32,7 +33,7 @@ PROCESSED_DIR = SCRIPT_DIR / "frames_processed"
 PROCESSED_DIR.mkdir(exist_ok=True)
 
 # ---------------------------------------------------------------------------
-# Saturation boost (same as preprocess_preview.py)
+# Saturation boost
 # ---------------------------------------------------------------------------
 SAT_SCALE = 1.8
 
@@ -42,78 +43,84 @@ def saturate(img_bgr: np.ndarray) -> np.ndarray:
     return cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
 
 
-GRID_STEP = 100  # pixel grid spacing
-
-def draw_grid(img_bgr: np.ndarray) -> np.ndarray:
-    """Overlay a semi-transparent pixel grid and axis labels so Gemini can read coordinates accurately."""
-    out = img_bgr.copy()
-    h, w = out.shape[:2]
-    overlay = out.copy()
-
-    # Grid lines every GRID_STEP pixels
-    for x in range(0, w, GRID_STEP):
-        cv2.line(overlay, (x, 0), (x, h), (255, 255, 255), 1)
-    for y in range(0, h, GRID_STEP):
-        cv2.line(overlay, (0, y), (w, y), (255, 255, 255), 1)
-
-    # Blend grid at low opacity
-    cv2.addWeighted(overlay, 0.18, out, 0.82, 0, out)
-
-    # Axis tick labels
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    for x in range(0, w, GRID_STEP):
-        label = str(x)
-        # shadow then white
-        cv2.putText(out, label, (x + 2, 14), font, 0.35, (0, 0, 0), 2, cv2.LINE_AA)
-        cv2.putText(out, label, (x + 2, 14), font, 0.35, (255, 255, 255), 1, cv2.LINE_AA)
-    for y in range(GRID_STEP, h, GRID_STEP):
-        label = str(y)
-        cv2.putText(out, label, (2, y - 3), font, 0.35, (0, 0, 0), 2, cv2.LINE_AA)
-        cv2.putText(out, label, (2, y - 3), font, 0.35, (255, 255, 255), 1, cv2.LINE_AA)
-
-    return out
-
 # ---------------------------------------------------------------------------
-# Gemini prompt
+# Step 1 prompt — find brown soil regions
 # ---------------------------------------------------------------------------
-PROMPT = """\
-You are a precision agriculture AI analysing a vineyard image captured by a drone.
-The scene contains: vine plants in rows, under the vine plants is brown soil, and then between the rows is a grass patch.
-Your goal is to find weeds:  plant growth in the brown soil that is not the vine plant.
-               Do NOT mark grass, individual tiny green specks or small blades — only mark clearly, large, visible structures resembling a flowering plant.
-               Do NOT mark bare tilled soil.
-               Around the weed would be brown soil.
+SOIL_PROMPT = """\
+You are analysing a drone image of a vineyard.
+Identify every distinct region of bare brown soil visible in the image.
+These are the tilled strips directly under the vine rows — brown/tan/earthy coloured,
+NOT the green grass patches between rows and NOT the vine plants themselves.
 
-
-Return ONLY a JSON object with one key "weed" mapping to an array of bounding boxes (may be empty []).
-Bounding box schema: {"x1": int, "y1": int, "x2": int, "y2": int}  (absolute pixels, top-left to bottom-right).
-Image dimensions will be provided in the prompt.
+Return ONLY a JSON object with one key "soil" mapping to an array of bounding boxes.
+Bounding box schema: {{"x1": int, "y1": int, "x2": int, "y2": int}} (absolute pixels, top-left to bottom-right).
+Image dimensions: {width}x{height} pixels.
 
 Example:
-{
-  "weed": [{"x1": 120, "y1": 340, "x2": 210, "y2": 410}]
-}
+{{
+  "soil": [{{"x1": 10, "y1": 50, "x2": 300, "y2": 620}}]
+}}
 
 Return ONLY the raw JSON object, no markdown fences, no explanation.
 """
 
 # ---------------------------------------------------------------------------
-# 3-D unprojection  (same geometry as analyze.py but per-frame crop plane)
+# Step 2 prompt — find weeds inside a soil crop
+# ---------------------------------------------------------------------------
+WEED_PROMPT = """\
+You are analysing a cropped image showing mostly brown soil from a vineyard drone photo.
+Look carefully for any weeds: plants growing in the brown soil that are NOT the vine plant and are not grass or surrounded by grass.
+A weed will appear as green/leafy growth sitting on the brown soil.
+
+Rules:
+- Only mark clearly visible, sizeable plant structures (leaves, stems, rosettes).
+- Do NOT mark bare soil, soil texture variations, or tiny specks.
+- Do NOT mark vine trunks or vine leaves that enter the frame from the top.
+
+Return ONLY a JSON object with one key "weed" mapping to an array of bounding boxes (may be empty []).
+Bounding box schema: {{"x1": int, "y1": int, "x2": int, "y2": int}} (absolute pixels within this crop).
+Crop dimensions: {width}x{height} pixels.
+
+Example:
+{{
+  "weed": [{{"x1": 40, "y1": 80, "x2": 120, "y2": 160}}]
+}}
+
+Return ONLY the raw JSON object, no markdown fences, no explanation.
+"""
+
+# ---------------------------------------------------------------------------
+# Gemini helper
+# ---------------------------------------------------------------------------
+def call_gemini(client, pil_img: Image.Image, prompt: str) -> dict:
+    response = client.models.generate_content(
+        model="gemini-3-flash-preview",
+        contents=[
+            types.Part.from_text(text=prompt),
+            pil_img,
+        ],
+    )
+    raw = response.text.strip()
+    raw = re.sub(r"^```[a-z]*\n?", "", raw)
+    raw = re.sub(r"\n?```$", "", raw)
+    return json.loads(raw)
+
+
+def bgr_to_pil(img_bgr: np.ndarray) -> Image.Image:
+    return Image.fromarray(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB))
+
+
+# ---------------------------------------------------------------------------
+# 3-D unprojection
 # ---------------------------------------------------------------------------
 def unproject_pixel(px: float, py: float, img_w: int, img_h: int, entry: dict) -> list[float]:
-    """
-    Cast a ray from the camera through pixel (px,py) and intersect with
-    the frame's crop plane to get a world-space 3D position.
-    """
-    cam_pos = entry["position"]          # [x, y, z]
-    quat    = entry["quaternion"]        # [x, y, z, w]
+    cam_pos = entry["position"]
+    quat    = entry["quaternion"]
     fov_deg = entry["fov"]
     aspect  = entry["aspect"]
-    plane   = entry["cropPlane"]         # {normal:[x,y,z], d:float}
+    plane   = entry["cropPlane"]
 
-    # Reconstruct camera forward/right/up from quaternion
     qx, qy, qz, qw = quat
-    # Rotation matrix from quaternion
     def rot(v):
         x, y, z = v
         tx = 2*(qy*z - qz*y)
@@ -125,41 +132,33 @@ def unproject_pixel(px: float, py: float, img_w: int, img_h: int, entry: dict) -
             z + qw*tz + qx*ty - qy*tx,
         ]
 
-    # Camera looks down -Z in local space
     forward = rot([0, 0, -1])
     right   = rot([1, 0,  0])
     up      = rot([0, 1,  0])
 
-    # NDC coords (-1..1)
     ndc_x = (px / img_w) * 2 - 1
     ndc_y = 1 - (py / img_h) * 2
 
-    # Half-extents in view space
     half_h = math.tan(math.radians(fov_deg / 2))
     half_w = half_h * aspect
 
-    # Ray direction in world space
     ray_dir = [
         forward[0] + ndc_x * half_w * right[0] + ndc_y * half_h * up[0],
         forward[1] + ndc_x * half_w * right[1] + ndc_y * half_h * up[1],
         forward[2] + ndc_x * half_w * right[2] + ndc_y * half_h * up[2],
     ]
 
-    # Normalise
     mag = math.sqrt(sum(v**2 for v in ray_dir)) or 1.0
     ray_dir = [v / mag for v in ray_dir]
 
-    # Intersect with crop plane: dot(normal, point) = d
     n = plane["normal"]
     d = plane["d"]
     denom = sum(n[i] * ray_dir[i] for i in range(3))
     if abs(denom) < 1e-9:
-        # Ray parallel to plane — fall back to camera position
         return cam_pos
 
     t = (d - sum(n[i] * cam_pos[i] for i in range(3))) / denom
-    world = [cam_pos[i] + t * ray_dir[i] for i in range(3)]
-    return world
+    return [cam_pos[i] + t * ray_dir[i] for i in range(3)]
 
 
 # ---------------------------------------------------------------------------
@@ -178,6 +177,31 @@ def load_api_key() -> str:
         print("ERROR: GEMINI_API_KEY not set.", file=sys.stderr)
         sys.exit(1)
     return key
+
+
+def normalize_box(box: dict) -> dict:
+    """Accept x1/y1/x2/y2 or xmin/ymin/xmax/ymax or left/top/right/bottom."""
+    def pick(*keys):
+        for k in keys:
+            if k in box:
+                return int(box[k])
+        raise KeyError(f"No matching key in {list(box.keys())} for {keys}")
+    return {
+        "x1": pick("x1", "xmin", "left"),
+        "y1": pick("y1", "ymin", "top"),
+        "x2": pick("x2", "xmax", "right"),
+        "y2": pick("y2", "ymax", "bottom"),
+    }
+
+
+def clamp_box(box: dict, img_w: int, img_h: int) -> dict:
+    box = normalize_box(box)
+    return {
+        "x1": max(0, min(box["x1"], img_w - 1)),
+        "y1": max(0, min(box["y1"], img_h - 1)),
+        "x2": max(0, min(box["x2"], img_w)),
+        "y2": max(0, min(box["y2"], img_h)),
+    }
 
 
 def main():
@@ -203,7 +227,7 @@ def main():
     all_anomalies = []
     anomaly_id = 0
 
-    print(f"Detecting anomalies in {len(frames)} frame(s) with gemini-3-flash...\n")
+    print(f"Two-step weed detection on {len(frames)} frame(s)...\n")
 
     for i, entry in enumerate(frames):
         frame_path = MANIFEST_PATH.parent / entry["frame"]
@@ -211,82 +235,107 @@ def main():
             print(f"  [{i+1}/{len(frames)}] SKIP (missing): {entry['frame']}")
             continue
 
-        print(f"  [{i+1}/{len(frames)}] {entry['frame']} ... ", end="", flush=True)
+        print(f"  [{i+1}/{len(frames)}] {entry['frame']}")
 
-        # Load + saturate
         img_bgr = cv2.imread(str(frame_path))
         if img_bgr is None:
-            print("SKIP (unreadable)")
+            print("    SKIP (unreadable)")
             continue
+
         enhanced_bgr = saturate(img_bgr)
-        gridded_bgr  = draw_grid(enhanced_bgr)
-        img_h, img_w = gridded_bgr.shape[:2]
+        img_h, img_w = enhanced_bgr.shape[:2]
 
-        # Save the processed image so review.html can show it
-        cv2.imwrite(str(PROCESSED_DIR / frame_path.name), gridded_bgr)
+        cv2.imwrite(str(PROCESSED_DIR / frame_path.name), enhanced_bgr)
 
-        # Convert to PIL for Gemini
-        gridded_rgb = cv2.cvtColor(gridded_bgr, cv2.COLOR_BGR2RGB)
-        pil_img = Image.fromarray(gridded_rgb)
-
-        prompt_with_dims = (
-            f"Image size: {img_w}x{img_h} pixels (width x height).\n\n" + PROMPT
-        )
-
+        # ------------------------------------------------------------------
+        # Step 1: Find soil regions
+        # ------------------------------------------------------------------
+        print(f"    Step 1: finding soil regions ...", end="", flush=True)
         try:
-            response = client.models.generate_content(
-                model="gemini-3-flash-preview",
-                contents=[
-                    types.Part.from_text(text=prompt_with_dims),
-                    pil_img,
-                ],
+            soil_parsed = call_gemini(
+                client,
+                bgr_to_pil(enhanced_bgr),
+                SOIL_PROMPT.format(width=img_w, height=img_h),
             )
-            raw = response.text.strip()
-
-            # Strip markdown fences if Gemini adds them
-            raw = re.sub(r"^```[a-z]*\n?", "", raw)
-            raw = re.sub(r"\n?```$", "", raw)
-
-            parsed = json.loads(raw)
-
-            found = 0
-            for anomaly_type in ("weed",):
-                boxes = parsed.get(anomaly_type, [])
-                if not isinstance(boxes, list):
-                    continue
-                for box in boxes:
-                    cx = (box["x1"] + box["x2"]) / 2
-                    cy = (box["y1"] + box["y2"]) / 2
-                    world_pos = unproject_pixel(cx, cy, img_w, img_h, entry)
-                    all_anomalies.append({
-                        "id":       f"a{anomaly_id}",
-                        "type":     anomaly_type,
-                        "position": world_pos,
-                        "frame":    entry["frame"],
-                        "bbox_px":  box,
-                        "bbox_norm": {
-                            "x1": box["x1"] / img_w,
-                            "y1": box["y1"] / img_h,
-                            "x2": box["x2"] / img_w,
-                            "y2": box["y2"] / img_h,
-                        },
-                    })
-                    anomaly_id += 1
-                    found += 1
-
-            print(f"{found} anomaly/anomalies")
-
+            soil_boxes = soil_parsed.get("soil", [])
+            if not isinstance(soil_boxes, list):
+                soil_boxes = []
         except Exception as e:
-            print(f"ERROR: {e}")
+            print(f" ERROR: {e}")
+            continue
+
+        print(f" found {len(soil_boxes)} soil region(s)")
+
+        if not soil_boxes:
+            print("    No soil detected, skipping frame.")
+            continue
+
+        # ------------------------------------------------------------------
+        # Step 2: Find weeds inside each soil crop
+        # ------------------------------------------------------------------
+        frame_weeds = 0
+        for si, sbox in enumerate(soil_boxes):
+            sbox = clamp_box(sbox, img_w, img_h)
+            crop_w = sbox["x2"] - sbox["x1"]
+            crop_h = sbox["y2"] - sbox["y1"]
+
+            if crop_w < 10 or crop_h < 10:
+                continue
+
+            crop_bgr = enhanced_bgr[sbox["y1"]:sbox["y2"], sbox["x1"]:sbox["x2"]]
+
+            print(f"    Step 2 soil[{si}] ({crop_w}x{crop_h}px) ... ", end="", flush=True)
+            try:
+                weed_parsed = call_gemini(
+                    client,
+                    bgr_to_pil(crop_bgr),
+                    WEED_PROMPT.format(width=crop_w, height=crop_h),
+                )
+                weed_boxes = weed_parsed.get("weed", [])
+                if not isinstance(weed_boxes, list):
+                    weed_boxes = []
+            except Exception as e:
+                print(f" ERROR: {e}")
+                continue
+
+            print(f"{len(weed_boxes)} weed(s)")
+
+            for wbox in weed_boxes:
+                wbox = normalize_box(wbox)
+                # Translate crop-local coords back to full-image coords
+                full_x1 = sbox["x1"] + wbox["x1"]
+                full_y1 = sbox["y1"] + wbox["y1"]
+                full_x2 = sbox["x1"] + wbox["x2"]
+                full_y2 = sbox["y1"] + wbox["y2"]
+
+                cx = (full_x1 + full_x2) / 2
+                cy = (full_y1 + full_y2) / 2
+                world_pos = unproject_pixel(cx, cy, img_w, img_h, entry)
+
+                full_box = {"x1": full_x1, "y1": full_y1, "x2": full_x2, "y2": full_y2}
+                all_anomalies.append({
+                    "id":        f"a{anomaly_id}",
+                    "type":      "weed",
+                    "position":  world_pos,
+                    "frame":     entry["frame"],
+                    "bbox_px":   full_box,
+                    "bbox_norm": {
+                        "x1": full_x1 / img_w,
+                        "y1": full_y1 / img_h,
+                        "x2": full_x2 / img_w,
+                        "y2": full_y2 / img_h,
+                    },
+                    "soil_bbox_px": sbox,
+                })
+                anomaly_id += 1
+                frame_weeds += 1
+
+        print(f"    => {frame_weeds} weed(s) detected in frame\n")
 
     ANOMALIES_OUT.parent.mkdir(parents=True, exist_ok=True)
     ANOMALIES_OUT.write_text(json.dumps(all_anomalies, indent=2))
 
-    counts = {}
-    for a in all_anomalies:
-        counts[a["type"]] = counts.get(a["type"], 0) + 1
-
-    print(f"\nDone. {len(all_anomalies)} total anomalies: {counts}")
+    print(f"Done. {len(all_anomalies)} total weeds found.")
     print(f"Written to: {ANOMALIES_OUT}")
     print("Refresh the browser to see markers.")
 

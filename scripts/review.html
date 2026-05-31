@@ -2,114 +2,236 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Anomaly Review</title>
+<title>Weed Detection Review</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: #0d0d0d; color: #ccc; font-family: monospace; font-size: 13px; }
   h1 { padding: 20px; color: #aef; border-bottom: 1px solid #222; }
-  .frame-section { border-bottom: 2px solid #222; padding: 20px; }
-  .frame-title { font-size: 15px; color: #8cf; margin-bottom: 14px; }
-  .panels { display: flex; gap: 16px; flex-wrap: wrap; }
-  .panel { flex: 1 1 300px; min-width: 0; }
-  .panel-label { color: #666; margin-bottom: 6px; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; }
-  .panel img, .panel canvas { width: 100%; border: 1px solid #333; border-radius: 4px; display: block; }
-  .splat-wrap { width: 100%; aspect-ratio: 16/9; position: relative; border: 1px solid #333; border-radius: 4px; overflow: hidden; background: #111; }
-  .splat-wrap iframe { width: 100%; height: 100%; border: none; }
+  #status { padding: 12px 20px; color: #fa0; border-bottom: 1px solid #222; }
+
+  .frame-section { border-bottom: 3px solid #1a1a1a; padding: 24px 20px; }
+  .frame-title { font-size: 15px; color: #8cf; margin-bottom: 16px; }
+
+  /* ---- Step 1 row ---- */
+  .step-label {
+    font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
+    color: #555; margin-bottom: 8px;
+  }
+  .step-label span { color: #8cf; }
+
+  .full-row { margin-bottom: 24px; }
+  .full-row canvas { width: 100%; border: 1px solid #333; border-radius: 4px; display: block; }
+
+  /* ---- Step 2 crops ---- */
+  .crops-row { display: flex; flex-wrap: wrap; gap: 12px; }
+  .crop-card {
+    background: #111;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    padding: 10px;
+    flex: 0 0 auto;
+    max-width: 380px;
+  }
+  .crop-card.has-weeds { border-color: #2a4a2a; }
+  .crop-card-label { font-size: 10px; color: #555; margin-bottom: 6px; }
+  .crop-card canvas { display: block; border: 1px solid #222; border-radius: 3px; max-width: 100%; }
+  .weed-count { margin-top: 6px; font-size: 11px; color: #4f4; }
+  .weed-count.zero { color: #444; }
+
   .no-anomaly { color: #444; font-style: italic; padding: 8px 0; }
-  .legend { display: flex; gap: 16px; padding: 12px 20px; border-bottom: 1px solid #222; }
-  .legend-item { display: flex; align-items: center; gap: 6px; }
-  .swatch { width: 12px; height: 12px; border-radius: 50%; }
-  #status { padding: 20px; color: #fa0; }
+  .legend { display: flex; gap: 20px; padding: 10px 20px; border-bottom: 1px solid #222; font-size: 11px; }
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
 </style>
 </head>
 <body>
 
-<h1>Anomaly Detection Review</h1>
+<h1>Weed Detection Review</h1>
 <div class="legend">
-  <div class="legend-item"><div class="swatch" style="background:#00ff88"></div> weed</div>
-  <div class="legend-item"><div class="swatch" style="background:#ffcc00"></div> dry_spot</div>
-  <div class="legend-item"><div class="swatch" style="background:#ff4444"></div> pest</div>
+  <span><span class="swatch" style="background:#f90"></span>Soil region (Step 1)</span>
+  <span><span class="swatch" style="background:#00ff88"></span>Weed (Step 2)</span>
 </div>
-<div id="status">Loading data...</div>
+<div id="status">Loading...</div>
 <div id="root"></div>
 
 <script>
-const TYPE_COLOR = { weed: '#00ff88', dry_spot: '#ffcc00', pest: '#ff4444' };
-
-// Resolve paths relative to this HTML file's location (scripts/).
-// anomalies.json is in frontend/public/, manifest is in scripts/frames/.
 const ANOMALIES_PATH = '/frontend/public/anomalies.json';
 const MANIFEST_PATH  = '/scripts/frames/manifest.json';
+const SOIL_COLOR     = '#f90';
+const WEED_COLOR     = '#00ff88';
 
 async function loadJSON(path) {
   const r = await fetch(path);
-  if (!r.ok) throw new Error(`Failed to load ${path}: ${r.status}`);
+  if (!r.ok) throw new Error(`${path}: ${r.status}`);
   return r.json();
 }
 
-function drawAnnotated(imgEl, anomaliesForFrame, imgW, imgH) {
-  const canvas = document.createElement('canvas');
-  canvas.width  = imgW;
-  canvas.height = imgH;
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(imgEl, 0, 0, imgW, imgH);
+function loadImage(src) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload  = () => res(img);
+    img.onerror = () => rej(new Error(`Failed to load ${src}`));
+    img.src = src;
+  });
+}
 
-  for (const a of anomaliesForFrame) {
-    const b = a.bbox_px;
-    const color = TYPE_COLOR[a.type] || '#fff';
+// Draw an image onto a canvas with labelled boxes
+function makeCanvas(img, boxes, color, labelFn) {
+  const c = document.createElement('canvas');
+  c.width  = img.naturalWidth  || img.width;
+  c.height = img.naturalHeight || img.height;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+
+  for (let i = 0; i < boxes.length; i++) {
+    const b = boxes[i];
     ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
-    // Dotted red line
+    ctx.lineWidth = Math.max(2, c.width / 400);
     ctx.setLineDash([6, 4]);
     ctx.strokeRect(b.x1, b.y1, b.x2 - b.x1, b.y2 - b.y1);
     ctx.setLineDash([]);
 
-    // Label
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(b.x1, b.y1 - 18, 72, 18);
+    const label = labelFn ? labelFn(i, b) : String(i + 1);
+    const fs = Math.max(11, c.width / 60);
+    ctx.font = `bold ${fs}px monospace`;
+    const tw = ctx.measureText(label).width;
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(b.x1, b.y1 - fs - 4, tw + 8, fs + 4);
     ctx.fillStyle = color;
-    ctx.font = 'bold 12px monospace';
-    ctx.fillText(a.type.toUpperCase(), b.x1 + 4, b.y1 - 4);
+    ctx.fillText(label, b.x1 + 4, b.y1 - 4);
   }
-  return canvas;
+  return c;
 }
 
-function makeSplatViewer(entry) {
-  const p = entry.position;
-  const q = entry.quaternion;
-  const params = new URLSearchParams({
-    cx: p[0], cy: p[1], cz: p[2],
-    qx: q[0], qy: q[1], qz: q[2], qw: q[3],
-    fov: entry.fov,
-  });
-  const url = `http://localhost:5173/?${params}`;
+// Crop a canvas region
+function cropCanvas(src, b) {
+  const w = b.x2 - b.x1, h = b.y2 - b.y1;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  c.getContext('2d').drawImage(src, b.x1, b.y1, w, h, 0, 0, w, h);
+  return c;
+}
 
-  const wrap = document.createElement('div');
-  wrap.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;';
+async function buildFrame(root, entry, anomalies) {
+  const frameFile = entry.frame;
+  const framePath = `/scripts/frames/${frameFile}`;
 
-  const btn = document.createElement('a');
-  btn.href = url;
-  btn.target = '_blank';
-  btn.textContent = 'Open 3D View';
-  btn.style.cssText = `
-    background: rgba(0,180,255,0.12);
-    border: 1px solid rgba(0,180,255,0.4);
-    color: #4af;
-    font-family: monospace;
-    font-size: 13px;
-    padding: 10px 22px;
-    border-radius: 6px;
-    text-decoration: none;
-    letter-spacing: 1px;
-  `;
+  // Group anomalies by which soil box they came from (via soil_bbox_px key)
+  // Build unique soil boxes list
+  const soilBoxMap = new Map(); // key = JSON string of soil_bbox_px
+  for (const a of anomalies) {
+    if (!a.soil_bbox_px) continue;
+    const key = JSON.stringify(a.soil_bbox_px);
+    if (!soilBoxMap.has(key)) soilBoxMap.set(key, { box: a.soil_bbox_px, weeds: [] });
+    soilBoxMap.get(key).weeds.push(a);
+  }
+  const soilRegions = [...soilBoxMap.values()];
 
-  const coords = document.createElement('div');
-  coords.style.cssText = 'color:#444;font-size:10px;font-family:monospace;text-align:center;';
-  coords.textContent = `pos [${p.map(v=>v.toFixed(3)).join(', ')}]`;
+  // Also collect soil boxes that had 0 weeds — not in anomalies, so we can't
+  // recover them here. We'll just show what we have.
 
-  wrap.appendChild(btn);
-  wrap.appendChild(coords);
-  return wrap;
+  const section = document.createElement('div');
+  section.className = 'frame-section';
+
+  const title = document.createElement('div');
+  title.className = 'frame-title';
+  title.textContent = `${frameFile}  —  ${soilRegions.length} soil region(s), ${anomalies.length} weed(s)`;
+  section.appendChild(title);
+
+  let img;
+  try {
+    img = await loadImage(framePath);
+  } catch (e) {
+    const err = document.createElement('div');
+    err.className = 'no-anomaly';
+    err.textContent = `Could not load image: ${e.message}`;
+    section.appendChild(err);
+    root.appendChild(section);
+    return;
+  }
+
+  // ---- Step 1: full image with soil boxes ----
+  const step1Wrap = document.createElement('div');
+  step1Wrap.className = 'full-row';
+  const step1Label = document.createElement('div');
+  step1Label.className = 'step-label';
+  step1Label.innerHTML = 'Step 1 — <span>Soil regions detected</span>';
+  step1Wrap.appendChild(step1Label);
+
+  if (soilRegions.length === 0 && anomalies.length === 0) {
+    const msg = document.createElement('div');
+    msg.className = 'no-anomaly';
+    msg.textContent = 'No soil regions in anomalies.json for this frame (run detect.py first)';
+    step1Wrap.appendChild(msg);
+  } else {
+    const soilBoxes = soilRegions.map(r => r.box);
+    const c1 = makeCanvas(img, soilBoxes, SOIL_COLOR, (i) => `soil ${i + 1}`);
+    step1Wrap.appendChild(c1);
+  }
+  section.appendChild(step1Wrap);
+
+  // ---- Step 2: one crop card per soil region ----
+  if (soilRegions.length > 0) {
+    const step2Label = document.createElement('div');
+    step2Label.className = 'step-label';
+    step2Label.innerHTML = 'Step 2 — <span>Weeds found within each soil crop</span>';
+    section.appendChild(step2Label);
+
+    // Draw the full image onto an off-screen canvas so we can crop it
+    const fullCanvas = document.createElement('canvas');
+    fullCanvas.width  = img.naturalWidth;
+    fullCanvas.height = img.naturalHeight;
+    fullCanvas.getContext('2d').drawImage(img, 0, 0);
+
+    const cropsRow = document.createElement('div');
+    cropsRow.className = 'crops-row';
+
+    for (let si = 0; si < soilRegions.length; si++) {
+      const { box, weeds } = soilRegions[si];
+
+      // Translate weed bboxes to crop-local coords
+      const localWeeds = weeds.map(a => ({
+        x1: a.bbox_px.x1 - box.x1,
+        y1: a.bbox_px.y1 - box.y1,
+        x2: a.bbox_px.x2 - box.x1,
+        y2: a.bbox_px.y2 - box.y1,
+      }));
+
+      const cropSrc = cropCanvas(fullCanvas, box);
+
+      // Build a temp image from the crop canvas so makeCanvas can drawImage it
+      const cropImg = new Image();
+      cropImg.width  = cropSrc.width;
+      cropImg.height = cropSrc.height;
+      // Draw weeds onto the crop
+      const annotated = makeCanvas(cropSrc, localWeeds, WEED_COLOR, (i) => `weed ${i + 1}`);
+
+      const card = document.createElement('div');
+      card.className = 'crop-card' + (weeds.length > 0 ? ' has-weeds' : '');
+
+      const cardLabel = document.createElement('div');
+      cardLabel.className = 'crop-card-label';
+      cardLabel.textContent = `Soil ${si + 1}  (${box.x1},${box.y1})→(${box.x2},${box.y2})  ${box.x2-box.x1}×${box.y2-box.y1}px`;
+      card.appendChild(cardLabel);
+
+      // Limit display width
+      const maxW = 360;
+      const scale = Math.min(1, maxW / annotated.width);
+      annotated.style.width  = Math.round(annotated.width  * scale) + 'px';
+      annotated.style.height = Math.round(annotated.height * scale) + 'px';
+      card.appendChild(annotated);
+
+      const countEl = document.createElement('div');
+      countEl.className = 'weed-count' + (weeds.length === 0 ? ' zero' : '');
+      countEl.textContent = weeds.length === 0 ? 'no weeds detected' : `${weeds.length} weed(s) detected`;
+      card.appendChild(countEl);
+
+      cropsRow.appendChild(card);
+    }
+
+    section.appendChild(cropsRow);
+  }
+
+  root.appendChild(section);
 }
 
 async function build() {
@@ -122,118 +244,20 @@ async function build() {
       loadJSON(ANOMALIES_PATH),
       loadJSON(MANIFEST_PATH),
     ]);
-  } catch(e) {
+  } catch (e) {
     status.textContent = `Error: ${e.message}`;
     return;
   }
 
-  // Group anomalies by frame filename
   const byFrame = {};
   for (const a of anomalies) {
     (byFrame[a.frame] = byFrame[a.frame] || []).push(a);
   }
 
-  status.textContent = `${anomalies.length} anomalies across ${manifest.frames.length} frames`;
+  status.textContent = `${anomalies.length} weed(s) across ${manifest.frames.length} frame(s)`;
 
   for (const entry of manifest.frames) {
-    const frameFile = entry.frame;
-    const framePath = `/scripts/frames/${frameFile}`;
-    const frameAnomalies = byFrame[frameFile] || [];
-
-    const section = document.createElement('div');
-    section.className = 'frame-section';
-
-    const title = document.createElement('div');
-    title.className = 'frame-title';
-    title.textContent = `${frameFile}  (pass: ${entry.pass || '?'})  —  ${frameAnomalies.length} anomaly/anomalies`;
-    section.appendChild(title);
-
-    const panels = document.createElement('div');
-    panels.className = 'panels';
-
-    // --- Panel 1: Original PNG ---
-    const p1 = document.createElement('div');
-    p1.className = 'panel';
-    p1.innerHTML = '<div class="panel-label">1. Original</div>';
-    const origImg = document.createElement('img');
-    origImg.src = framePath;
-    origImg.alt = frameFile;
-    p1.appendChild(origImg);
-    panels.appendChild(p1);
-
-    // --- Panel 2: Annotated PNG (drawn after original loads) ---
-    const p2 = document.createElement('div');
-    p2.className = 'panel';
-    p2.innerHTML = '<div class="panel-label">2. Bounding Boxes</div>';
-    const annotCanvas = document.createElement('canvas');
-    annotCanvas.style.cssText = 'width:100%;border:1px solid #333;border-radius:4px;display:block;';
-
-    if (frameAnomalies.length === 0) {
-      const msg = document.createElement('div');
-      msg.className = 'no-anomaly';
-      msg.textContent = 'No anomalies detected';
-      p2.appendChild(msg);
-    } else {
-      origImg.addEventListener('load', () => {
-        const drawn = drawAnnotated(origImg, frameAnomalies, origImg.naturalWidth, origImg.naturalHeight);
-        drawn.style.cssText = 'width:100%;border:1px solid #333;border-radius:4px;display:block;';
-        p2.appendChild(drawn);
-      });
-    }
-    panels.appendChild(p2);
-
-    // --- Panel 4: Processed image Gemini actually saw ---
-    const p4 = document.createElement('div');
-    p4.className = 'panel';
-    p4.innerHTML = '<div class="panel-label">4. What Gemini Saw</div>';
-    const procImg = document.createElement('img');
-    procImg.src = `/scripts/frames_processed/${frameFile}?t=${Date.now()}`;
-    procImg.alt = 'processed';
-    procImg.onerror = () => { p4.innerHTML += '<div class="no-anomaly">Not generated yet — run detect.py first</div>'; };
-    p4.appendChild(procImg);
-    panels.appendChild(p4);
-
-    // --- Panel 3: 3D viewer at camera position ---
-    const p3 = document.createElement('div');
-    p3.className = 'panel';
-    p3.innerHTML = '<div class="panel-label">3. 3D View (frontend:5173)</div>';
-    const wrap = document.createElement('div');
-    wrap.className = 'splat-wrap';
-    wrap.appendChild(makeSplatViewer(entry));
-    p3.appendChild(wrap);
-
-    panels.appendChild(p3);
-
-    section.appendChild(panels);
-
-    // Anomaly table
-    if (frameAnomalies.length > 0) {
-      const table = document.createElement('table');
-      table.style.cssText = 'margin-top:12px;border-collapse:collapse;width:100%;font-size:11px;';
-      table.innerHTML = `<tr style="color:#666;border-bottom:1px solid #222">
-        <th style="text-align:left;padding:4px 8px">ID</th>
-        <th style="text-align:left;padding:4px 8px">Type</th>
-        <th style="text-align:left;padding:4px 8px">Bbox (px)</th>
-        <th style="text-align:left;padding:4px 8px">World pos</th>
-      </tr>`;
-      for (const a of frameAnomalies) {
-        const b = a.bbox_px;
-        const p = a.position.map(v => v.toFixed(3));
-        const color = TYPE_COLOR[a.type] || '#fff';
-        const tr = document.createElement('tr');
-        tr.style.borderBottom = '1px solid #1a1a1a';
-        tr.innerHTML = `
-          <td style="padding:4px 8px;color:#888">${a.id}</td>
-          <td style="padding:4px 8px;color:${color};font-weight:bold">${a.type}</td>
-          <td style="padding:4px 8px;color:#aaa">(${b.x1},${b.y1}) → (${b.x2},${b.y2})</td>
-          <td style="padding:4px 8px;color:#aaa">[${p.join(', ')}]</td>
-        `;
-        table.appendChild(tr);
-      }
-      section.appendChild(table);
-    }
-
-    root.appendChild(section);
+    await buildFrame(root, entry, byFrame[entry.frame] || []);
   }
 }
 
