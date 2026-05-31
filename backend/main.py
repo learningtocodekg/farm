@@ -1,114 +1,82 @@
-import os
 import base64
-import asyncio
 import json
-from typing import List
-from dotenv import load_dotenv
+from pathlib import Path
+from typing import Any, Optional
 
-load_dotenv()
-
-import httpx
-from fastapi import FastAPI, File, UploadFile, HTTPException
+import cv2
+import numpy as np
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+from dotenv import load_dotenv
 
 from agents.farm_agent import router as agent_router
 from agents.farm_ops_agent import router as ops_router
 from agents.farm_robot_agent import router as robot_router
+from gemini_logic import router as gemini_router
+from heatmap_pipeline import process_topdown
+
+load_dotenv()
 
 app = FastAPI(title="Farm Analysis API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173", "http://localhost:5174"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Mount the ADK-powered farm research agent
+FLIGHT_PATH_FILE  = Path(__file__).parent.parent / "frontend" / "public" / "flight-path.json"
+FRONTEND_PUBLIC   = Path(__file__).parent.parent / "frontend" / "public"
+FRAMES_DIR = Path(__file__).parent.parent / "scripts" / "frames"
+MANIFEST_FILE = FRAMES_DIR / "manifest.json"
+REVIEW_LOG_FILE = FRAMES_DIR / "review-log.json"
+
+
+class CameraSnapshot(BaseModel):
+    position: list[float]
+    quaternion: list[float]
+    fov: float
+
+
+class SideFlightLine(BaseModel):
+    start: list[float]
+    end: list[float]
+
+
+class CropPlane(BaseModel):
+    normal: list[float]
+    d: float
+
+
+class SideConfig(BaseModel):
+    flightLine: SideFlightLine
+    cropPt: list[float]
+    cropPlane: CropPlane
+    flightDir: list[float]
+    frameWidth: float
+
+
+class Viewport(BaseModel):
+    width: float
+    height: float
+    aspect: float
+
+
+class FlightPathConfig(BaseModel):
+    leftWaypoints:  list[CameraSnapshot]
+    rightWaypoints: list[CameraSnapshot]
+    left:  Optional[SideConfig]
+    right: Optional[SideConfig]
+    viewport: Viewport
+
+
 app.include_router(agent_router, prefix="/api/agent")
-
-# Mount the ADK-powered pull-only operations agent
 app.include_router(ops_router, prefix="/api/ops-agent")
-
-# Mount the ADK-powered hardware robot agent
 app.include_router(robot_router, prefix="/api/robot")
-
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_URL = (
-    "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-1.5-flash:generateContent"
-)
-
-FARM_ANALYSIS_PROMPT = """You are an expert agricultural AI assistant analyzing farm photos.
-For each photo provided, perform a detailed analysis covering:
-
-1. **Crop Health** - Identify any signs of disease, nutrient deficiency, or stress.
-2. **Weed Detection** - Identify any weeds present, their species if possible, and severity.
-3. **Soil Conditions** - Note any visible soil issues, erosion, or moisture problems.
-4. **Pest Damage** - Look for signs of insect or animal damage.
-5. **Overall Assessment** - Provide a brief health score (0-100) and key recommendations.
-
-Structure your response as a clear, actionable report. Be specific about what you observe in the images.
-If multiple images are provided, analyze each one and then give an overall combined assessment."""
-
-
-def _build_gemini_request(images_b64: List[tuple[str, str]]) -> dict:
-    """Build a Gemini API request body with multiple images."""
-    parts = []
-    for idx, (b64_data, mime_type) in enumerate(images_b64):
-        parts.append({"text": f"Photo {idx + 1}:"})
-        parts.append({
-            "inline_data": {
-                "mime_type": mime_type,
-                "data": b64_data,
-            }
-        })
-    parts.append({"text": FARM_ANALYSIS_PROMPT})
-    return {
-        "contents": [{"parts": parts}],
-        "generationConfig": {
-            "temperature": 0.4,
-            "maxOutputTokens": 2048,
-        },
-    }
-
-
-async def _call_gemini(
-    client: httpx.AsyncClient,
-    images_b64: List[tuple[str, str]],
-    batch_label: str,
-) -> dict:
-    """Send one Gemini API request and return the parsed result."""
-    if not GEMINI_API_KEY:
-        raise HTTPException(
-            status_code=500,
-            detail="GEMINI_API_KEY environment variable is not set.",
-        )
-
-    payload = _build_gemini_request(images_b64)
-    url = f"{GEMINI_URL}?key={GEMINI_API_KEY}"
-
-    try:
-        response = await client.post(url, json=payload, timeout=120.0)
-        response.raise_for_status()
-        data = response.json()
-        text = (
-            data.get("candidates", [{}])[0]
-            .get("content", {})
-            .get("parts", [{}])[0]
-            .get("text", "No response generated.")
-        )
-        return {"batch": batch_label, "analysis": text}
-    except httpx.HTTPStatusError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Gemini API error on {batch_label}: {exc.response.text}",
-        )
-    except httpx.RequestError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Network error calling Gemini on {batch_label}: {str(exc)}",
-        )
+app.include_router(gemini_router, prefix="/api")
 
 
 @app.get("/api/health")
@@ -116,122 +84,115 @@ def health():
     return {"status": "ok"}
 
 
-@app.post("/api/analyze")
-async def analyze_photos(photos: List[UploadFile] = File(...)):
-    """
-    Accepts 1–20 JPEG photos.
-    Sends them to Gemini in up to 2 parallel API calls (max 10 photos each).
-    Returns combined analysis results.
-    """
-    if not photos:
-        raise HTTPException(status_code=400, detail="No photos provided.")
-    if len(photos) > 20:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Maximum 20 photos allowed. Received {len(photos)}.",
-        )
-
-    # Read and base64-encode all uploaded files
-    images_b64: List[tuple[str, str]] = []
-    for photo in photos:
-        content = await photo.read()
-        mime_type = photo.content_type or "image/jpeg"
-        b64 = base64.b64encode(content).decode("utf-8")
-        images_b64.append((b64, mime_type))
-
-    # Split into 2 batches of at most 10
-    batch1 = images_b64[:10]
-    batch2 = images_b64[10:20]  # Empty if ≤ 10 photos
-
-    async with httpx.AsyncClient() as client:
-        tasks = [_call_gemini(client, batch1, "Batch 1 (Photos 1–10)")]
-        if batch2:
-            tasks.append(_call_gemini(client, batch2, "Batch 2 (Photos 11–20)"))
-
-        results = await asyncio.gather(*tasks)
-
-    return {
-        "total_photos": len(photos),
-        "batches_processed": len(results),
-        "results": results,
-    }
+@app.post("/api/save-flight-path")
+def save_flight_path(config: FlightPathConfig):
+    try:
+        FLIGHT_PATH_FILE.parent.mkdir(parents=True, exist_ok=True)
+        FLIGHT_PATH_FILE.write_text(json.dumps(config.model_dump(), indent=2))
+        return {"status": "saved", "path": str(FLIGHT_PATH_FILE)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-REPORT_PROMPT = """You are an expert agricultural AI assistant. 
-Generate a comprehensive farm health report based on typical sensor data (Moisture, Nutrient, Temperature, Weed Control).
-Output your response as a valid JSON object following this exact schema:
-{
-  "analyst": "string",
-  "markdownText": "string (A detailed markdown report with headings, bullet points, and actionable recommendations)",
-  "scores": {
-    "overall": {
-      "value": number (0-100),
-      "max": 100,
-      "description": "string"
-    },
-    "categories": [
-      {
-        "id": "moisture",
-        "title": "Moisture Index",
-        "score": number,
-        "max": 100,
-        "status": "string"
-      },
-      {
-        "id": "nutrient",
-        "title": "Nutrient Balance",
-        "score": number,
-        "max": 100,
-        "status": "string"
-      },
-      {
-        "id": "temperature",
-        "title": "Temperature Stability",
-        "score": number,
-        "max": 100,
-        "status": "string"
-      },
-      {
-        "id": "weed",
-        "title": "Weed Control",
-        "score": number,
-        "max": 100,
-        "status": "string"
-      }
-    ]
-  }
-}
-Return ONLY the raw JSON object, without any markdown formatting blocks like ```json.
-"""
+@app.get("/api/manifest")
+def get_manifest():
+    if not MANIFEST_FILE.exists():
+        raise HTTPException(status_code=404, detail="manifest.json not found — run capture.js first")
+    return json.loads(MANIFEST_FILE.read_text())
 
-@app.get("/api/report")
-async def generate_report():
-    if not GEMINI_API_KEY:
-        raise HTTPException(status_code=500, detail="GEMINI_API_KEY environment variable is not set.")
 
-    payload = {
-        "contents": [{"parts": [{"text": REPORT_PROMPT}]}],
-        "generationConfig": {
-            "temperature": 0.7,
-            "responseMimeType": "application/json",
-        },
-    }
-    url = f"{GEMINI_URL}?key={GEMINI_API_KEY}"
-    
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(url, json=payload, timeout=60.0)
-            response.raise_for_status()
-            data = response.json()
-            text = (
-                data.get("candidates", [{}])[0]
-                .get("content", {})
-                .get("parts", [{}])[0]
-                .get("text", "{}")
-            )
-            return json.loads(text)
-        except httpx.HTTPStatusError as e:
-            raise HTTPException(status_code=e.response.status_code, detail=f"Gemini API error: {e.response.text}")
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+class FrameAdjustment(BaseModel):
+    frame: str
+    pass_: str
+    position: list[float]
+    baseCamera: dict[str, Any]
+    deltas: dict[str, float]
+    effectiveCamera: dict[str, Any]
 
+
+class ReviewLog(BaseModel):
+    savedAt: str
+    frameCount: int
+    adjustments: list[FrameAdjustment]
+
+
+@app.post("/api/save-review-log")
+def save_review_log(log: ReviewLog):
+    try:
+        REVIEW_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        data = log.model_dump()
+        # rename pass_ back to pass for the output file
+        for adj in data["adjustments"]:
+            adj["pass"] = adj.pop("pass_")
+        REVIEW_LOG_FILE.write_text(json.dumps(data, indent=2))
+        return {"status": "saved", "path": str(REVIEW_LOG_FILE)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _prune_ply(src: Path, dst: Path, min_opacity: float = 0.05, max_scale: float = 2.0) -> dict:
+    from plyfile import PlyData, PlyElement
+    ply   = PlyData.read(str(src))
+    verts = ply["vertex"].data
+    total = len(verts)
+
+    opacity = 1.0 / (1.0 + np.exp(-np.clip(verts["opacity"].astype(np.float32), -20, 20)))
+    mask = opacity >= min_opacity
+
+    s = np.maximum(np.maximum(
+        np.exp(verts["scale_0"].astype(np.float32)),
+        np.exp(verts["scale_1"].astype(np.float32))),
+        np.exp(verts["scale_2"].astype(np.float32)))
+    mask &= s <= max_scale
+
+    filtered = verts[mask]
+    PlyData([PlyElement.describe(filtered, "vertex")], text=False).write(str(dst))
+    return {"kept": int(mask.sum()), "total": total}
+
+
+class TopDownPayload(BaseModel):
+    image: str  # base64 data URL from canvas.toDataURL()
+
+
+@app.post("/api/cleanup-splat")
+def cleanup_splat_endpoint(
+    min_opacity: float = 0.05,
+    max_scale: float   = 2.0,
+):
+    scene_src = FRONTEND_PUBLIC / "scene.ply"
+    scene_dst = FRONTEND_PUBLIC / "scene_clean.ply"
+    if not scene_src.exists():
+        raise HTTPException(status_code=404, detail="scene.ply not found in public folder")
+    try:
+        stats = _prune_ply(scene_src, scene_dst, min_opacity, max_scale)
+        return {**stats, "scene": "/scene_clean.ply"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/process-topdown")
+def process_topdown_view(payload: TopDownPayload):
+    try:
+        raw = payload.image
+        if "," in raw:
+            raw = raw.split(",", 1)[1]
+        arr = np.frombuffer(base64.b64decode(raw), np.uint8)
+        bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if bgr is None:
+            raise HTTPException(status_code=400, detail="Could not decode image")
+
+        result_bgr, meta = process_topdown(bgr)
+
+        out_path = FRONTEND_PUBLIC / "nitrogen-focal.png"
+        FRONTEND_PUBLIC.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(out_path), result_bgr)
+
+        return {"url": "/nitrogen-focal.png", "meta": meta}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# StaticFiles must come after all route definitions
+app.mount("/frames", StaticFiles(directory=FRAMES_DIR), name="frames")
