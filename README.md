@@ -37,7 +37,7 @@ Photos (1–20)
 └─────────────────────────────────────────────────────┘
 ```
 
-Both agents run **in parallel** (`asyncio.gather`) using `gemini-2.0-flash`, each analyzing up to 10 images with detailed agricultural prompts covering crop health, weed detection, soil conditions, and pest damage.
+Both agents run **in parallel** (`asyncio.gather`) using `gemini-2.5-flash`, each analyzing up to 10 images with detailed agricultural prompts covering crop health, weed detection, soil conditions, and pest damage.
 
 ### Tech Stack
 
@@ -46,7 +46,7 @@ Both agents run **in parallel** (`asyncio.gather`) using `gemini-2.0-flash`, eac
 | **Frontend** | React + TypeScript (Vite), React Router, Lucide Icons, TailwindCSS |
 | **3D Rendering** | 3D Gaussian Splatting (custom WebGL viewer) |
 | **Backend** | FastAPI (Python), `httpx` async HTTP client |
-| **AI** | Google Gemini 2.0 Flash (via REST API) |
+| **AI** | Google Gemini 1.5 Flash (via REST API) |
 | **Markdown** | `react-markdown` + `remark-gfm` |
 
 ### Project Structure
