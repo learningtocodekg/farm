@@ -28,7 +28,7 @@ Weed Control: 80/100 (Good)
 DETAILED ANALYSIS
 ================================================================================
 
-# Farm Health Report: Comprehensive Analysis
+Farm Health Report: Comprehensive Analysis
 
 Date: May 31, 2026
 Farm ID: QuackFarm-001
@@ -39,7 +39,7 @@ Your farm demonstrates GOOD overall health status with a score of 82/100. While 
 
  Category Analysis
 
-# 1. Moisture Index (Score: 82/100 - Good)
+ 1. Moisture Index (Score: 82/100 - Good)
 
 Status: Soil moisture levels are within optimal ranges across most zones, with good water distribution from recent irrigation.
 
@@ -53,7 +53,7 @@ Recommendations:
 - Continue weekly moisture monitoring
 - Adjust if rainfall exceeds 1 inch per week
 
-# 2. Nutrient Balance (Score: 78/100 - Good)
+ 2. Nutrient Balance (Score: 78/100 - Good)
 
 Status: Nutrient levels are generally adequate, though nitrogen shows slight opportunity for optimization.
 
@@ -68,7 +68,7 @@ Recommendations:
 - Consider side-dress application at mid-season
 - Conduct tissue analysis in 3 weeks
 
-# 3. Temperature Stability (Score: 88/100 - Excellent)
+ 3. Temperature Stability (Score: 88/100 - Excellent)
 
 Status: Temperature conditions are ideal for current crop development with minimal stress from heat or cold.
 
@@ -82,7 +82,7 @@ Recommendations:
 - Continue monitoring during forecast heat events
 - Current microclimatic conditions are ideal - maintain
 
-# 4. Weed Control (Score: 80/100 - Good)
+ 4. Weed Control (Score: 80/100 - Good)
 
 Status: Weed pressure is moderate and well-controlled with current practices.
 
