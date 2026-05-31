@@ -1,22 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { HeatmapLayer } from './SoilHeatmap';
-import rawData from '../data/soilSensors.json';
+import { fetchSoilSensors, SoilSensor } from '../lib/db';
 import aerialImage from '../assets/images/nitrogen-heatmapp.jpeg';
-
-// ── types ─────────────────────────────────────────────────────────────────────
-
-interface SoilSensor {
-  id: string;
-  lat: number;
-  lng: number;
-  x: number;
-  y: number;
-  moisture: number;
-  nitrogen: number;
-  phosphorus: number;
-  potassium: number;
-  ph: number;
-}
 
 type RGB = [number, number, number];
 
@@ -26,10 +11,6 @@ interface ChannelConfig {
   min: number;
   max: number;
 }
-
-// ── config ────────────────────────────────────────────────────────────────────
-
-const SENSORS: SoilSensor[] = rawData.sensors as SoilSensor[];
 
 const CHANNEL_CONFIG: Record<HeatmapLayer, ChannelConfig> = {
   moisture:   { label: 'Moisture',   unit: '%',  min: 0,   max: 100 },
@@ -91,9 +72,9 @@ function getSensorValue(s: SoilSensor, layer: HeatmapLayer): number {
 
 // ── IDW heatmap renderer ──────────────────────────────────────────────────────
 
-function drawHeatmap(canvas: HTMLCanvasElement, layer: HeatmapLayer) {
+function drawHeatmap(canvas: HTMLCanvasElement, layer: HeatmapLayer, sensors: SoilSensor[]) {
   const ctx = canvas.getContext('2d');
-  if (!ctx) return;
+  if (!ctx || sensors.length === 0) return;
   const W = CANVAS_W, H = CANVAS_H;
   const imageData = ctx.createImageData(W, H);
   const d = imageData.data;
@@ -103,7 +84,7 @@ function drawHeatmap(canvas: HTMLCanvasElement, layer: HeatmapLayer) {
     for (let px = 0; px < W; px++) {
       const nx = px / W;
       let wSum = 0, vSum = 0;
-      for (const s of SENSORS) {
+      for (const s of sensors) {
         const dx = nx - s.x;
         const dy = ny - s.y;
         const w = 1 / (dx * dx + dy * dy + 1e-6);
@@ -274,11 +255,16 @@ interface Props {
 export default function SoilSensorOverlay({ layer, onLayerChange }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const active = SENSORS.find(s => s.id === activeId) ?? null;
+  const [sensors, setSensors] = useState<SoilSensor[]>([]);
+  const active = sensors.find(s => s.id === activeId) ?? null;
 
   useEffect(() => {
-    if (canvasRef.current) drawHeatmap(canvasRef.current, layer);
-  }, [layer]);
+    fetchSoilSensors().then(setSensors);
+  }, []);
+
+  useEffect(() => {
+    if (canvasRef.current) drawHeatmap(canvasRef.current, layer, sensors);
+  }, [layer, sensors]);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', borderRadius: 10, isolation: 'isolate' }}>
@@ -347,7 +333,7 @@ export default function SoilSensorOverlay({ layer, onLayerChange }: Props) {
       </div>
 
       {/* Sensor dots */}
-      {SENSORS.map(s => (
+      {sensors.map(s => (
         <button
           key={s.id}
           onClick={() => setActiveId(activeId === s.id ? null : s.id)}

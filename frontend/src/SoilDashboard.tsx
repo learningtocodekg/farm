@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Sun, Cloud, CloudRain, Calendar, Activity, LayoutDashboard } from 'lucide-react';
 import SoilSensorOverlay from './components/SoilSensorOverlay';
 import { HeatmapLayer } from './components/SoilHeatmap';
-import soilData from './data/soilSensors.json';
+import { fetchSoilSensors, fetchAmbientConditions, fetchForecast, SoilSensor, AmbientConditions, Forecast } from './lib/db';
 
 // ── Design tokens (FarmOS palette) ───────────────────────────────────────────
 
@@ -47,8 +47,9 @@ const LAYERS: HeatmapLayer[] = ['moisture', 'nitrogen', 'phosphorus', 'potassium
 
 type SensorKey = 'moisture' | 'nitrogen' | 'phosphorus' | 'potassium' | 'ph';
 
-function avgField(key: SensorKey): number {
-  return soilData.sensors.reduce((s, x) => s + x[key], 0) / soilData.sensors.length;
+function avgField(sensors: SoilSensor[], key: SensorKey): number {
+  if (sensors.length === 0) return 0;
+  return sensors.reduce((s, x) => s + x[key], 0) / sensors.length;
 }
 
 function fmtVal(v: number, layer: HeatmapLayer): string {
@@ -61,9 +62,9 @@ function progressPct(v: number, layer: HeatmapLayer): number {
   return Math.max(2, Math.min(100, ((v - min) / (max - min)) * 100));
 }
 
-function layerDescription(layer: HeatmapLayer): string {
-  const dryCount = soilData.sensors.filter(s => s.moisture < 30).length;
-  const nLowCount = soilData.sensors.filter(s => s.nitrogen < 20).length;
+function layerDescription(sensors: SoilSensor[], layer: HeatmapLayer): string {
+  const dryCount = sensors.filter(s => s.moisture < 30).length;
+  const nLowCount = sensors.filter(s => s.nitrogen < 20).length;
   switch (layer) {
     case 'moisture':
       return dryCount > 3
@@ -99,20 +100,29 @@ function Divider({ vertical = false }: { vertical?: boolean }) {
 
 export default function SoilDashboard() {
   const [layer, setLayer] = useState<HeatmapLayer>('moisture');
+  const [sensors, setSensors] = useState<SoilSensor[]>([]);
+  const [ambient, setAmbient] = useState<AmbientConditions | null>(null);
+  const [forecast, setForecast] = useState<Forecast | null>(null);
+
+  useEffect(() => {
+    fetchSoilSensors().then(setSensors);
+    fetchAmbientConditions().then(setAmbient);
+    fetchForecast().then(setForecast);
+  }, []);
 
   const avgs: Record<HeatmapLayer, number> = {
-    moisture:   avgField('moisture'),
-    nitrogen:   avgField('nitrogen'),
-    phosphorus: avgField('phosphorus'),
-    potassium:  avgField('potassium'),
-    ph:         avgField('ph'),
+    moisture:   avgField(sensors, 'moisture'),
+    nitrogen:   avgField(sensors, 'nitrogen'),
+    phosphorus: avgField(sensors, 'phosphorus'),
+    potassium:  avgField(sensors, 'potassium'),
+    ph:         avgField(sensors, 'ph'),
   };
 
   const activeMeta  = LAYER_META[layer];
   const activeAvg   = avgs[layer];
   const activeFmt   = fmtVal(activeAvg, layer);
   const activePct   = progressPct(activeAvg, layer);
-  const activeDesc  = layerDescription(layer);
+  const activeDesc  = layerDescription(sensors, layer);
 
   return (
     <div
@@ -379,10 +389,10 @@ export default function SoilDashboard() {
             </h3>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 16, rowGap: 32 }}>
               {[
-                { value: '24', unit: '°',    label: 'Temperature' },
-                { value: '55', unit: '%',    label: 'Humidity' },
-                { value: '7.2', unit: '',   label: 'UV Index' },
-                { value: '850', unit: 'W/m²', label: 'Solar Rad' },
+                { value: ambient ? String(ambient.temperature) : '—', unit: '°',     label: 'Temperature' },
+                { value: ambient ? String(ambient.humidity)    : '—', unit: '%',     label: 'Humidity' },
+                { value: ambient ? String(ambient.uvIndex)     : '—', unit: '',      label: 'UV Index' },
+                { value: ambient ? String(ambient.solarRadiation) : '—', unit: 'W/m²', label: 'Solar Rad' },
               ].map(({ value, unit, label }) => (
                 <div key={label} style={{ display: 'flex', flexDirection: 'column' }}>
                   <span style={{ fontSize: 32, fontWeight: 600, lineHeight: 1, letterSpacing: '-0.01em' }}>
@@ -432,40 +442,42 @@ export default function SoilDashboard() {
 
             {/* Forecast rows */}
             <div style={{ display: 'flex', flexDirection: 'column', padding: '0 24px', overflowY: 'auto' }}>
-              {[
-                { day: 'TODAY', icon: <Sun size={18} style={{ color: C.secondary }} />,        high: 24, low: 16, today: true  },
-                { day: 'THU',   icon: <Sun size={18} style={{ color: C.onSurfaceVariant }} />, high: 22, low: 15, today: false },
-                { day: 'FRI',   icon: <Cloud size={18} style={{ color: C.onSurfaceVariant }} />, high: 19, low: 14, today: false },
-                { day: 'SAT',   icon: <CloudRain size={18} style={{ color: C.primary }} />,    high: 18, low: 12, today: true  },
-                { day: 'SUN',   icon: <Sun size={18} style={{ color: C.onSurfaceVariant }} />, high: 21, low: 13, today: false },
-              ].map(({ day, icon, high, low, today }, i, arr) => (
-                <div
-                  key={day}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '16px 0',
-                    borderBottom: i < arr.length - 1 ? `1px solid ${C.outlineVariant}` : 'none',
-                  }}
-                >
-                  <span style={{
-                    fontSize: 12, fontWeight: 700, letterSpacing: '0.05em',
-                    textTransform: 'uppercase', width: 48,
-                    color: today ? C.primary : C.onSurfaceVariant,
-                  }}>
-                    {day}
-                  </span>
-                  {icon}
-                  <span style={{
-                    fontSize: 16, textAlign: 'right', width: 64,
-                    fontWeight: today ? 600 : 400,
-                    color: today ? C.primary : C.onSurfaceVariant,
-                  }}>
-                    {high}° / {low}°
-                  </span>
-                </div>
-              ))}
+              {(forecast?.future ?? []).map((d, i, arr) => {
+                const isToday = d.day.toLowerCase() === 'today';
+                const iconEl = d.icon === '🌧️'
+                  ? <CloudRain size={18} style={{ color: isToday ? C.primary : C.onSurfaceVariant }} />
+                  : d.icon === '⛅'
+                  ? <Cloud size={18} style={{ color: C.onSurfaceVariant }} />
+                  : <Sun size={18} style={{ color: isToday ? C.secondary : C.onSurfaceVariant }} />;
+                return (
+                  <div
+                    key={d.day}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '16px 0',
+                      borderBottom: i < arr.length - 1 ? `1px solid ${C.outlineVariant}` : 'none',
+                    }}
+                  >
+                    <span style={{
+                      fontSize: 12, fontWeight: 700, letterSpacing: '0.05em',
+                      textTransform: 'uppercase', width: 48,
+                      color: isToday ? C.primary : C.onSurfaceVariant,
+                    }}>
+                      {d.day}
+                    </span>
+                    {iconEl}
+                    <span style={{
+                      fontSize: 16, textAlign: 'right', width: 64,
+                      fontWeight: isToday ? 600 : 400,
+                      color: isToday ? C.primary : C.onSurfaceVariant,
+                    }}>
+                      {d.tempHigh}° / {d.tempLow}°
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </section>

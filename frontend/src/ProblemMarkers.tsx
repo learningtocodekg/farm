@@ -117,12 +117,14 @@ function buildSprayGroup(): THREE.Group {
 interface Props {
   activeDroneProblemId: string | null;
   onDroneComplete: (problemId: string) => void;
+  problems?: Problem[];
 }
 
 function getViewer() { return (window as any).gsplatViewer ?? null; }
 function easeInOut(t: number) { return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; }
 
-export default function ProblemMarkers({ activeDroneProblemId, onDroneComplete }: Props) {
+export default function ProblemMarkers({ activeDroneProblemId, onDroneComplete, problems: propProblems }: Props) {
+  const ACTIVE_PROBLEMS = propProblems ?? PROBLEMS;
   const pinRefs        = useRef<Record<string, HTMLDivElement | null>>({});
   const markerRafRef   = useRef<number | null>(null);
   const droneRafRef    = useRef<number | null>(null);
@@ -211,7 +213,7 @@ export default function ProblemMarkers({ activeDroneProblemId, onDroneComplete }
       return;
     }
 
-    const problem = PROBLEMS.find(p => p.id === activeDroneProblemId);
+    const problem = ACTIVE_PROBLEMS.find(p => p.id === activeDroneProblemId);
     const drone   = droneGroupRef.current;
     const spray   = sprayGroupRef.current;
     if (!problem || !drone || !spray) return;
@@ -306,14 +308,14 @@ export default function ProblemMarkers({ activeDroneProblemId, onDroneComplete }
 
   // ── Project problem marker pins to screen every frame ─────────────────────
   useEffect(() => {
-    const vecs = PROBLEMS.map(p => new THREE.Vector3(...p.position));
+    const vecs = ACTIVE_PROBLEMS.map(p => new THREE.Vector3(...p.position));
 
     const loop = () => {
       const viewer = (window as any).gsplatViewer;
       const cam    = viewer?.camera as THREE.PerspectiveCamera | undefined;
       if (cam) {
         const W = window.innerWidth, H = window.innerHeight;
-        PROBLEMS.forEach((p, i) => {
+        ACTIVE_PROBLEMS.forEach((p, i) => {
           const el = pinRefs.current[p.id];
           if (!el) return;
           const ndc = vecs[i].clone().project(cam);
@@ -329,12 +331,12 @@ export default function ProblemMarkers({ activeDroneProblemId, onDroneComplete }
 
     markerRafRef.current = requestAnimationFrame(loop);
     return () => { if (markerRafRef.current) cancelAnimationFrame(markerRafRef.current); };
-  }, []);
+  }, [ACTIVE_PROBLEMS]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 6 }}>
-      {PROBLEMS.map(p => (
+      {ACTIVE_PROBLEMS.map(p => (
         <div
           key={p.id}
           ref={el => { pinRefs.current[p.id] = el; }}

@@ -149,7 +149,9 @@ activemq-data/
 
 # Environments
 .env
+.env.local
 .envrc
+serviceAccount.json
 .venv
 env/
 venv/

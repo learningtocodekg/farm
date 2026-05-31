@@ -7,8 +7,11 @@ import {
 } from 'lucide-react';
 import { HeatmapLayer, LAYER_GRADIENTS, LAYER_RANGES, COLOR_SCALES, mapColor } from './components/SoilHeatmap';
 import SoilSensorOverlay from './components/SoilSensorOverlay';
-import soilData from './data/soilSensors.json';
-import ProblemMarkers, { PROBLEMS } from './ProblemMarkers';
+import ProblemMarkers from './ProblemMarkers';
+import {
+  fetchSoilSensors, fetchAgentLogs, fetchAmbientConditions, fetchForecast, fetchProblems, fetchAllWeeds,
+  SoilSensor, AgentLog, AmbientConditions, Forecast, Problem, WeedInfo,
+} from './lib/db';
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
@@ -211,6 +214,27 @@ export default function Overlay() {
 
   // Soil view layer selector
   const [soilLayer, setSoilLayer] = useState<HeatmapLayer>('moisture');
+
+  // Firestore data
+  const [agentLogs, setAgentLogs]       = useState<AgentLog[]>([]);
+  const [ambient, setAmbient]           = useState<AmbientConditions | null>(null);
+  const [forecast, setForecast]         = useState<Forecast | null>(null);
+  const [problems, setProblems]         = useState<Problem[]>([]);
+  const [weedDb, setWeedDb]             = useState<Record<string, WeedInfo>>({});
+  const [soilSensors, setSoilSensors]   = useState<SoilSensor[]>([]);
+
+  useEffect(() => {
+    fetchAgentLogs().then(setAgentLogs);
+    fetchAmbientConditions().then(setAmbient);
+    fetchForecast().then(setForecast);
+    fetchProblems().then(setProblems);
+    fetchAllWeeds().then(weeds => {
+      const map: Record<string, WeedInfo> = {};
+      for (const w of weeds) map[w.id] = w;
+      setWeedDb(map);
+    });
+    fetchSoilSensors().then(setSoilSensors);
+  }, []);
 
   // Left panel tab
   const [leftTab, setLeftTab] = useState<'agent-log' | 'problems'>('agent-log');
@@ -624,7 +648,7 @@ export default function Overlay() {
                   <Sprout className="w-4 h-4" /> Soil Quality
                 </div>
                 <div className="flex-1 overflow-y-auto p-4">
-                  <SoilQualityPanel layer={soilLayer} onLayerChange={setSoilLayer} />
+                  <SoilQualityPanel layer={soilLayer} onLayerChange={setSoilLayer} sensors={soilSensors} />
                 </div>
               </>
             ) : (
@@ -657,17 +681,14 @@ export default function Overlay() {
                 </div>
                 {leftTab === 'agent-log' && (
                   <div className="flex-1 overflow-y-auto p-3 font-mono" style={{ fontSize: 12, color: '#1b1b1b' }}>
-                    {[
-                      { time: '09:38', message: 'sent drone #33 to spray pesticides to 36.7893, -119.4145 due to high pest spotting' },
-                      { time: '09:35', message: 'sent drone #21 to spread fertilizer to 36.7905, -119.4181 due to sensors showing low nutrient levels' },
-                      { time: '09:28', message: 'activated sprinkler in 36.7870, -119.4145 due to low moisture levels in soil' },
-                      { time: '09:22', message: 'sent drone #17 to spread fertilizer to 36.7903, -119.4167 due to sensors showing low nutrient levels' },
-                      { time: '09:15', message: 'activated sprinkler in 36.7871, -119.4132 due to low moisture levels in soil' },
-                    ].map((entry, i) => (
-                      <div key={i} style={{ padding: '10px 0', borderBottom: BORDER_SUBTLE }}>
-                        [{entry.time}] {entry.message}
-                      </div>
-                    ))}
+                    {agentLogs.length === 0
+                      ? <div style={{ padding: '10px 0', color: '#767676' }}>Loading…</div>
+                      : agentLogs.map((entry, i) => (
+                          <div key={i} style={{ padding: '10px 0', borderBottom: BORDER_SUBTLE }}>
+                            [{entry.time}] {entry.message}
+                          </div>
+                        ))
+                    }
                   </div>
                 )}
                 {leftTab === 'problems' && (
@@ -675,30 +696,31 @@ export default function Overlay() {
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: '#767676' }}>Active Issues</span>
                       <span className="text-white text-[10px] font-bold px-2 py-0.5" style={{ background: '#ba1a1a' }}>
-                        {PROBLEMS.length - completedDrones.size} unresolved
+                        {problems.filter(p => p.type !== 'issue').length - completedDrones.size} unresolved
                       </span>
                     </div>
 
-                    {PROBLEMS.map(problem => {
+                    {problems.filter(p => p.type !== 'issue').map(problem => {
                       const isActive = activeDroneProblemId === problem.id;
                       const isDone   = completedDrones.has(problem.id);
                       const isOpen   = dropdownProblemId === problem.id;
+                      const pColor   = problem.color ?? '#ba1a1a';
                       return (
-                        <div key={problem.id} style={{ border: `1px solid ${problem.color}50`, background: `${problem.color}08` }}>
+                        <div key={problem.id} style={{ border: `1px solid ${pColor}50`, background: `${pColor}08` }}>
                           {/* Problem row */}
                           <div className="flex items-center gap-3 p-3">
-                            <ShieldAlert className="w-4 h-4 shrink-0" style={{ color: problem.color }} />
+                            <ShieldAlert className="w-4 h-4 shrink-0" style={{ color: pColor }} />
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 mb-0.5">
                                 <h4 className="text-sm font-bold" style={{ color: '#1b1b1b' }}>{problem.label}</h4>
-                                <span className="text-white text-[9px] font-bold px-1.5 py-0.5 uppercase" style={{ background: problem.color }}>
+                                <span className="text-white text-[9px] font-bold px-1.5 py-0.5 uppercase" style={{ background: pColor }}>
                                   {problem.severity}
                                 </span>
                               </div>
                               <p className="text-xs font-medium" style={{
-                                color: isActive ? '#00658f' : isDone ? '#4a8220' : problem.color,
+                                color: isActive ? '#00658f' : isDone ? '#4a8220' : pColor,
                               }}>
-                                {isActive ? '🚁 Drone en route…' : isDone ? '✓ Treatment complete' : problem.detail}
+                                {isActive ? '🚁 Drone en route…' : isDone ? '✓ Treatment complete' : ((problem as any).detail ?? problem.description ?? '')}
                               </p>
                             </div>
                             {isDone ? (
@@ -709,9 +731,9 @@ export default function Overlay() {
                                 disabled={!!activeDroneProblemId}
                                 className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-widest cursor-pointer shrink-0 flex items-center gap-1 transition-opacity"
                                 style={{
-                                  background: `${problem.color}18`,
-                                  border: `1px solid ${problem.color}50`,
-                                  color: problem.color,
+                                  background: `${pColor}18`,
+                                  border: `1px solid ${pColor}50`,
+                                  color: pColor,
                                   opacity: activeDroneProblemId ? 0.45 : 1,
                                 }}
                               >
@@ -723,7 +745,7 @@ export default function Overlay() {
 
                           {/* Inline dropdown */}
                           {isOpen && !isDone && (
-                            <div style={{ borderTop: `1px solid ${problem.color}30`, padding: '8px 12px 10px', background: `${problem.color}05` }}>
+                            <div style={{ borderTop: `1px solid ${pColor}30`, padding: '8px 12px 10px', background: `${pColor}05` }}>
                               <p className="text-[9px] font-bold uppercase tracking-widest mb-2" style={{ color: '#767676' }}>Deploy Action</p>
                               <button
                                 onClick={() => dispatchDrone(problem.id)}
@@ -740,15 +762,17 @@ export default function Overlay() {
                       );
                     })}
 
-                    {/* Static infrastructure issues */}
-                    <div className="p-3" style={{ border: BORDER_SUBTLE }}>
-                      <div className="flex justify-between text-xs"><span style={{ color: '#474747' }}>Irrigation deficit</span><span className="font-bold" style={{ color: '#ba1a1a' }}>Critical</span></div>
-                      <p className="text-[11px] mt-1" style={{ color: '#767676' }}>Bottom-right zone: moisture 18–27% — below 35%</p>
-                    </div>
-                    <div className="p-3" style={{ border: BORDER_SUBTLE }}>
-                      <div className="flex justify-between text-xs"><span style={{ color: '#474747' }}>NPK deficiency</span><span className="font-bold" style={{ color: '#b97b00' }}>Warning</span></div>
-                      <p className="text-[11px] mt-1" style={{ color: '#767676' }}>Top-left zone: N/P/K critically low — fertilization needed</p>
-                    </div>
+                    {problems.filter(p => p.type === 'issue').map(issue => (
+                      <div key={issue.id} className="p-3" style={{ border: BORDER_SUBTLE }}>
+                        <div className="flex justify-between text-xs">
+                          <span style={{ color: '#474747' }}>{issue.label}</span>
+                          <span className="font-bold" style={{ color: issue.severity === 'critical' ? '#ba1a1a' : '#b97b00' }}>
+                            {issue.severity.charAt(0).toUpperCase() + issue.severity.slice(1)}
+                          </span>
+                        </div>
+                        <p className="text-[11px] mt-1" style={{ color: '#767676' }}>{issue.description}</p>
+                      </div>
+                    ))}
                   </div>
                 )}
               </>
@@ -776,10 +800,10 @@ export default function Overlay() {
               )}
               {/* Drone status banner */}
               {activeDroneProblemId && (() => {
-                const p = PROBLEMS.find(x => x.id === activeDroneProblemId);
+                const p = problems.find(x => x.id === activeDroneProblemId);
                 return p ? (
                   <div className="absolute top-4 left-1/2 pointer-events-none" style={{ transform: 'translateX(-50%)', zIndex: 20 }}>
-                    <div className="flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wider" style={{ background: '#1b1b1b', color: '#fff', border: `1px solid ${p.color}60` }}>
+                    <div className="flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wider" style={{ background: '#1b1b1b', color: '#fff', border: `1px solid ${(p.color ?? '#ba1a1a')}60` }}>
                       <span className="relative flex h-2 w-2">
                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: '#00ff88' }} />
                         <span className="relative inline-flex rounded-full h-2 w-2" style={{ background: '#00ff88' }} />
@@ -803,12 +827,12 @@ export default function Overlay() {
               Ambient Conditions
             </div>
             <div className="grid grid-cols-2 flex-shrink-0" style={{ borderBottom: BORDER }}>
-              <InstitutionalSensor label="TEMPERATURE" value="24.2" unit="°C" />
-              <InstitutionalSensor label="HUMIDITY" value="55" unit="%" borderLeft />
-              <InstitutionalSensor label="UV INDEX" value="7.2" unit="" badge="HIGH" badgeColor="#b97b00" borderTop />
-              <InstitutionalSensor label="SOLAR RAD." value="850" unit="W/m²" borderLeft borderTop />
+              <InstitutionalSensor label="TEMPERATURE" value={ambient ? String(ambient.temperature) : '—'} unit="°C" />
+              <InstitutionalSensor label="HUMIDITY" value={ambient ? String(ambient.humidity) : '—'} unit="%" borderLeft />
+              <InstitutionalSensor label="UV INDEX" value={ambient ? String(ambient.uvIndex) : '—'} unit="" badge={ambient && ambient.uvIndex >= 6 ? 'HIGH' : undefined} badgeColor="#b97b00" borderTop />
+              <InstitutionalSensor label="SOLAR RAD." value={ambient ? String(ambient.solarRadiation) : '—'} unit="W/m²" borderLeft borderTop />
             </div>
-            <InstitutionalForecast />
+            <InstitutionalForecast forecast={forecast} />
           </section>
 
         </div>
@@ -864,13 +888,14 @@ export default function Overlay() {
         <WeedActionModal weedType={actionWeed} onClose={() => { setShowActionModal(false); setSelectedTreatment(null); setActionWeed(null); }} onSelectTreatment={setSelectedTreatment} selectedTreatment={selectedTreatment} />
       )}
       {showWeedModal && (
-        <WeedInfoModal weedType={selectedWeed} onClose={() => { setShowWeedModal(false); setSelectedWeed(null); }} />
+        <WeedInfoModal weedType={selectedWeed} onClose={() => { setShowWeedModal(false); setSelectedWeed(null); }} weedDb={weedDb} />
       )}
 
       {/* Problem markers + drone animation on the splat */}
       <ProblemMarkers
         activeDroneProblemId={activeDroneProblemId}
         onDroneComplete={handleDroneComplete}
+        problems={problems.filter(p => p.type !== 'issue') as any}
       />
 
       {/* Calibration panel — disabled */}
@@ -916,12 +941,13 @@ const LAYER_DESC: Record<HeatmapLayer, string> = {
 };
 
 function SoilQualityPanel({
-  layer, onLayerChange,
+  layer, onLayerChange, sensors,
 }: {
   layer: HeatmapLayer;
   onLayerChange: (l: HeatmapLayer) => void;
+  sensors: SoilSensor[];
 }) {
-  const sensors = soilData.sensors;
+  if (sensors.length === 0) return null;
   const values = sensors.map(s => {
     switch (layer) {
       case 'moisture':   return s.moisture;
@@ -1043,42 +1069,38 @@ function InstitutionalSensor({ label, value, unit, badge, badgeColor, borderLeft
   );
 }
 
-function InstitutionalForecast() {
-  const past = [
-    { day: 'May 26', icon: '☀️', temp: 22 },
-    { day: 'May 27', icon: '⛅', temp: 19 },
-    { day: 'May 28', icon: '🌧️', temp: 18 },
-    { day: 'May 29', icon: '☁️', temp: 21 },
-  ];
-  const future = [
-    { day: 'Today',    icon: '☀️',  temp: 24 },
-    { day: 'Tomorrow', icon: '⛅',  temp: 23 },
-    { day: 'Jun 1',    icon: '🌧️', temp: 20 },
-  ];
+function InstitutionalForecast({ forecast }: { forecast: import('./lib/db').Forecast | null }) {
+  const past   = forecast?.past   ?? [];
+  const future = forecast?.future ?? [];
   const BORDER = '1px solid #1b1b1b';
   const SUBTLE = '1px solid #c8c8c8';
+  if (!forecast) return (
+    <div className="flex flex-col flex-1 items-center justify-center" style={{ color: '#767676', fontSize: '0.75rem' }}>
+      Loading forecast…
+    </div>
+  );
   return (
     <div className="flex flex-col flex-1">
       <div className="flex justify-between items-center" style={{ padding: '16px 20px', borderBottom: BORDER, background: '#ebebeb' }}>
         <span style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: '#1b1b1b' }}>7-Day Temperature Forecast</span>
       </div>
-      <div style={{ padding: '10px 16px 4px', fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: '#767676', borderBottom: SUBTLE }}>← Past 4 Days</div>
-      <div className="grid grid-cols-4" style={{ borderBottom: BORDER }}>
+      <div style={{ padding: '10px 16px 4px', fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: '#767676', borderBottom: SUBTLE }}>← Past {past.length} Days</div>
+      <div className={`grid grid-cols-${past.length || 4}`} style={{ borderBottom: BORDER }}>
         {past.map((d, i) => (
-          <div key={i} className="flex flex-col items-center" style={{ padding: '12px 8px', borderRight: i < 3 ? SUBTLE : 'none', gap: 4 }}>
+          <div key={i} className="flex flex-col items-center" style={{ padding: '12px 8px', borderRight: i < past.length - 1 ? SUBTLE : 'none', gap: 4 }}>
             <span style={{ fontSize: '0.65rem', fontWeight: 600, textTransform: 'uppercase', color: '#474747' }}>{d.day}</span>
             <span style={{ fontSize: '1.2rem' }}>{d.icon}</span>
             <span style={{ fontFamily: 'monospace', fontSize: '0.8rem', fontWeight: 700, color: '#1b1b1b' }}>{d.temp}°</span>
           </div>
         ))}
       </div>
-      <div style={{ padding: '10px 16px 4px', fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: '#767676', borderBottom: SUBTLE }}>Next 3 Days →</div>
-      <div className="grid grid-cols-3" style={{ background: '#ebebeb' }}>
+      <div style={{ padding: '10px 16px 4px', fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: '#767676', borderBottom: SUBTLE }}>Next {future.length} Days →</div>
+      <div className={`grid grid-cols-${future.length || 3}`} style={{ background: '#ebebeb' }}>
         {future.map((d, i) => (
-          <div key={i} className="flex flex-col items-center" style={{ padding: '16px 8px', borderRight: i < 2 ? BORDER : 'none', gap: 4 }}>
+          <div key={i} className="flex flex-col items-center" style={{ padding: '16px 8px', borderRight: i < future.length - 1 ? BORDER : 'none', gap: 4 }}>
             <span style={{ fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', color: '#1b1b1b' }}>{d.day}</span>
             <span style={{ fontSize: '1.4rem' }}>{d.icon}</span>
-            <span style={{ fontFamily: 'monospace', fontSize: '1rem', fontWeight: 700, color: '#4a8220' }}>{d.temp}°</span>
+            <span style={{ fontFamily: 'monospace', fontSize: '1rem', fontWeight: 700, color: '#4a8220' }}>{d.tempHigh ?? d.temp}°</span>
           </div>
         ))}
       </div>
@@ -1086,45 +1108,9 @@ function InstitutionalForecast() {
   );
 }
 
-function WeedInfoModal({ weedType, onClose }: { weedType: string | null; onClose: () => void }) {
-  const weedDatabase: Record<string, any> = {
-    pigweed: {
-      name: 'Amaranthus retroflexus (Redroot Pigweed)',
-      priority: 'High',
-      sector: '4A',
-      description: 'A summer annual broadleaf weed that grows rapidly and competes aggressively with crops for nutrients and water. Recognized by its distinctive red/purple root system and ability to produce thousands of seeds.',
-      characteristics: [
-        'Grows 3-6 feet tall',
-        'Deep red/purple root system',
-        'Small flowers in terminal spikes',
-        'Produces thousands of seeds',
-        'Highly variable leaf size',
-      ],
-      imageUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0f/Amaranthus_retroflexus_-_Redroot_Pigweed.jpg/600px-Amaranthus_retroflexus_-_Redroot_Pigweed.jpg',
-      fallbackEmoji: '🌱',
-      impact: 'Can reduce crop yields by 10-40% if left uncontrolled',
-      season: 'Late Spring to Fall',
-    },
-    crabgrass: {
-      name: 'Digitaria sanguinalis (Large Crabgrass)',
-      priority: 'Medium',
-      sector: '2B',
-      description: 'A summer annual grass weed that germinates when soil temperatures reach 55-60°F. Spreads via stolons and root nodes, forming distinctive circular mats. Very competitive with young crops.',
-      characteristics: [
-        'Grows in circular mats',
-        'Star-like seed head with 3-6 spikes',
-        'Yellow-green foliage',
-        'Root nodes that initiate new plants',
-        'Faster growing than corn',
-      ],
-      imageUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f0/Digitaria_sanguinalis_-_Crabgrass.jpg/600px-Digitaria_sanguinalis_-_Crabgrass.jpg',
-      fallbackEmoji: '🌾',
-      impact: 'Competes heavily during early crop growth stages',
-      season: 'Spring to Summer',
-    },
-  };
-
-  const weed = weedDatabase[weedType || 'pigweed'];
+function WeedInfoModal({ weedType, onClose, weedDb }: { weedType: string | null; onClose: () => void; weedDb: Record<string, WeedInfo> }) {
+  const weed = weedDb[weedType || ''] ?? weedDb[Object.keys(weedDb)[0]];
+  if (!weed) return null;
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center pointer-events-auto z-50">
