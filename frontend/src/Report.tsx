@@ -13,7 +13,7 @@ export default function Report() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/report')
+    fetch('http://localhost:8001/api/report')
       .then(async res => {
         if (!res.ok) {
             let errorText = 'Failed to generate report';
