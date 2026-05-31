@@ -592,23 +592,15 @@ export default function Overlay() {
         {/* Header */}
         <header className="flex-shrink-0 pb-5" style={{ background: BG }}>
           <div className="flex items-center gap-2 text-xs font-semibold tracking-wider uppercase mb-3" style={{ color: '#474747' }}>
-            <span>FARMOS PRECISION v4.0</span>
+            <span>FarmOS PRECISION v4.0</span>
             <span style={{ color: '#c8c8c8' }}>/</span>
             <span style={{ color: '#1b1b1b' }}>Dashboard</span>
           </div>
           <div className="flex items-end justify-between">
             <h1 className="font-bold uppercase" style={{ fontSize: '4rem', letterSpacing: '-0.04em', lineHeight: 1, color: '#1b1b1b' }}>
-              FARMOS DASHBOARD
+              F<span className="normal-case">arm</span>OS DASHBOARD
             </h1>
             <div className="flex items-center gap-3 pointer-events-auto mb-1">
-              <div className="flex items-center gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-wider" style={{ border: BORDER, background: BG, color: '#1b1b1b' }}>
-                <span className={`w-2 h-2 rounded-full ${status === 'loaded' ? 'bg-[#4a8220]' : status === 'loading' ? 'bg-[#b97b00] animate-pulse' : 'bg-[#ba1a1a] animate-pulse'}`} />
-                {status === 'loaded' ? 'Live' : status === 'loading' ? 'Loading…' : 'Offline'}
-              </div>
-              <div className="flex" style={{ border: BORDER }}>
-                <button onClick={() => setPageMode('field')} className="px-3 py-2 text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer focus:outline-none" style={{ background: pageMode === 'field' ? '#1b1b1b' : BG, color: pageMode === 'field' ? '#fff' : '#474747' }}>Field</button>
-                <button onClick={() => setPageMode('soil')} className="px-3 py-2 text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer focus:outline-none" style={{ background: pageMode === 'soil' ? '#1b1b1b' : BG, color: pageMode === 'soil' ? '#fff' : '#474747', borderLeft: BORDER }}>Soil</button>
-              </div>
               <Link to="/report" className="flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors" style={{ border: BORDER, background: BG, color: '#1b1b1b' }}>
                 <FileText className="w-3.5 h-3.5" />
                 Generate Report
@@ -664,40 +656,18 @@ export default function Overlay() {
                   </button>
                 </div>
                 {leftTab === 'agent-log' && (
-                  <div className="flex-1 overflow-y-auto">
+                  <div className="flex-1 overflow-y-auto p-3 font-mono" style={{ fontSize: 12, color: '#1b1b1b' }}>
                     {[
-                      { time: '09:41', type: 'done',    title: 'Drone scan complete',    detail: 'Full field coverage — 2.4 ha mapped' },
-                      { time: '09:38', type: 'error',   title: 'Weed detected',          detail: 'Pigweed cluster — Sector 4A, Row 2 (95% conf.)' },
-                      { time: '09:35', type: 'warning', title: 'Weed detected',          detail: 'Crabgrass patch — Sector 2B, Row 3 (88% conf.)' },
-                      { time: '09:31', type: 'done',    title: 'Nitrogen analysis done', detail: 'Rows 2–3 scanned · avg 42 ppm · deficiency flagged' },
-                      { time: '09:28', type: 'done',    title: 'Soil moisture mapped',   detail: 'Bottom-right zone at 18–27% — irrigation queued' },
-                      { time: '09:20', type: 'done',    title: 'pH calibration passed',  detail: 'All 40 sensors nominal · avg pH 6.4' },
-                      { time: '09:14', type: 'running', title: 'Crop row mapping',       detail: 'Rows 1–5 boundary detection in progress' },
-                      { time: '09:10', type: 'done',    title: 'Drone flight initialised', detail: 'Route loaded · 14 waypoints · ETA 32 min' },
-                      { time: '09:05', type: 'done',    title: 'Session started',        detail: 'FarmAI agent v2.4 · field ID #0031' },
-                    ].map((entry, i) => {
-                      const accent = entry.type === 'error' ? '#ba1a1a' : entry.type === 'warning' ? '#b97b00' : entry.type === 'running' ? '#00658f' : '#4a8220';
-                      const isAlert = entry.type === 'error' || entry.type === 'warning';
-                      const iconEl = entry.type === 'done'    ? <CheckCircle className="w-4 h-4 mt-0.5 shrink-0" style={{ color: '#4a8220' }} />
-                                   : entry.type === 'error'   ? <AlertCircle  className="w-4 h-4 mt-0.5 shrink-0" style={{ color: '#ba1a1a' }} />
-                                   : entry.type === 'warning' ? <AlertCircle  className="w-4 h-4 mt-0.5 shrink-0" style={{ color: '#b97b00' }} />
-                                   : <Bot className="w-4 h-4 mt-0.5 shrink-0 animate-pulse" style={{ color: '#00658f' }} />;
-                      return (
-                        <div key={i} className="relative hover:bg-[#ebebeb] transition-colors" style={{ borderBottom: BORDER_SUBTLE, background: isAlert ? (entry.type === 'error' ? 'rgba(186,26,26,0.04)' : 'rgba(185,123,0,0.04)') : 'transparent' }}>
-                          <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: isAlert ? accent : 'transparent' }} />
-                          <div className="flex items-start gap-3" style={{ padding: '14px 16px 14px 20px' }}>
-                            {iconEl}
-                            <div className="flex-1 min-w-0">
-                              <div className="flex justify-between items-baseline mb-1">
-                                <span className="text-sm font-bold" style={{ color: isAlert ? accent : '#1b1b1b' }}>{entry.title}</span>
-                                <span className="font-mono text-xs ml-2 shrink-0" style={{ color: '#767676' }}>{entry.time}</span>
-                              </div>
-                              <p className="text-xs leading-relaxed" style={{ color: '#474747' }}>{entry.detail}</p>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
+                      { time: '09:38', message: 'sent drone #33 to spray pesticides to 36.7893, -119.4145 due to high pest spotting' },
+                      { time: '09:35', message: 'sent drone #21 to spread fertilizer to 36.7905, -119.4181 due to sensors showing low nutrient levels' },
+                      { time: '09:28', message: 'activated sprinkler in 36.7870, -119.4145 due to low moisture levels in soil' },
+                      { time: '09:22', message: 'sent drone #17 to spread fertilizer to 36.7903, -119.4167 due to sensors showing low nutrient levels' },
+                      { time: '09:15', message: 'activated sprinkler in 36.7871, -119.4132 due to low moisture levels in soil' },
+                    ].map((entry, i) => (
+                      <div key={i} style={{ padding: '10px 0', borderBottom: BORDER_SUBTLE }}>
+                        [{entry.time}] {entry.message}
+                      </div>
+                    ))}
                   </div>
                 )}
                 {leftTab === 'problems' && (

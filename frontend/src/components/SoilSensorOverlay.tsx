@@ -241,15 +241,14 @@ function ColorLegend({ layer }: { layer: HeatmapLayer }) {
     <div style={{
       position: 'absolute',
       bottom: 12,
-      left: '50%',
-      transform: 'translateX(-50%)',
+      right: 12,
       zIndex: 20,
       background: 'rgba(0,0,0,0.62)',
       backdropFilter: 'blur(10px)',
       border: '1px solid rgba(255,255,255,0.12)',
       borderRadius: 8,
       padding: '7px 14px',
-      minWidth: 230,
+      minWidth: 180,
       pointerEvents: 'none',
     }}>
       <div style={{ fontSize: 9, fontWeight: 600, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 5, textAlign: 'center' }}>

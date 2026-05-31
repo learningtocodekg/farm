@@ -5,7 +5,7 @@ import SoilSensorOverlay from './components/SoilSensorOverlay';
 import { HeatmapLayer } from './components/SoilHeatmap';
 import soilData from './data/soilSensors.json';
 
-// ── Design tokens (FARMOS palette) ───────────────────────────────────────────
+// ── Design tokens (FarmOS palette) ───────────────────────────────────────────
 
 const C = {
   primary:                '#000000',
