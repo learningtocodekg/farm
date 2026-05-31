@@ -70,7 +70,7 @@ Return ONLY the raw JSON object, no markdown fences, no explanation.
 WEED_PROMPT = """\
 You are analysing a cropped image showing mostly brown soil from a vineyard drone photo.
 Look carefully for any weeds: plants growing in the brown soil that are NOT the vine plant and are not grass or surrounded by grass.
-A weed will appear as green/leafy growth sitting on the brown soil.
+A weed will appear as green/leafy growth sitting on the brown soil. It should be surrounded by brown, not yellow or green.
 
 Rules:
 - Only mark clearly visible, sizeable plant structures (leaves, stems, rosettes).
@@ -118,7 +118,6 @@ def unproject_pixel(px: float, py: float, img_w: int, img_h: int, entry: dict) -
     quat    = entry["quaternion"]
     fov_deg = entry["fov"]
     aspect  = entry["aspect"]
-    plane   = entry["cropPlane"]
 
     qx, qy, qz, qw = quat
     def rot(v):
@@ -151,13 +150,35 @@ def unproject_pixel(px: float, py: float, img_w: int, img_h: int, entry: dict) -
     mag = math.sqrt(sum(v**2 for v in ray_dir)) or 1.0
     ray_dir = [v / mag for v in ray_dir]
 
-    n = plane["normal"]
-    d = plane["d"]
-    denom = sum(n[i] * ray_dir[i] for i in range(3))
-    if abs(denom) < 1e-9:
-        return cam_pos
+    # Intersect with the horizontal ground plane at Y = cam_pos.Y.
+    # The camera looks nearly horizontally at the soil, so the vertical crop-row
+    # plane intersection gives bad Y values. The soil surface is at the same Y
+    # as the camera position for each pass (left Y ≈ -1.618, right Y ≈ -1.084).
+    ground_y = cam_pos[1]
+    # Plane: Y = ground_y  ->  normal = (0,1,0), d = ground_y
+    # t = (ground_y - cam_y) / ray_dir_y
+    if abs(ray_dir[1]) < 1e-9:
+        # Ray is nearly horizontal — fall back to cropPlane intersection
+        plane = entry["cropPlane"]
+        n = plane["normal"]
+        d = plane["d"]
+        denom = sum(n[i] * ray_dir[i] for i in range(3))
+        if abs(denom) < 1e-9:
+            return cam_pos
+        t = (d - sum(n[i] * cam_pos[i] for i in range(3))) / denom
+    else:
+        t = (ground_y - cam_pos[1]) / ray_dir[1]
 
-    t = (d - sum(n[i] * cam_pos[i] for i in range(3))) / denom
+    if t < 0:
+        # Ray goes away from ground — flip to the cropPlane fallback
+        plane = entry["cropPlane"]
+        n = plane["normal"]
+        d = plane["d"]
+        denom = sum(n[i] * ray_dir[i] for i in range(3))
+        if abs(denom) < 1e-9:
+            return cam_pos
+        t = (d - sum(n[i] * cam_pos[i] for i in range(3))) / denom
+
     return [cam_pos[i] + t * ray_dir[i] for i in range(3)]
 
 
