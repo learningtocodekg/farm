@@ -85,7 +85,7 @@ export default function Overlay() {
             className="flex items-center gap-2 px-5 py-3 rounded-xl bg-emerald-500/25 border border-emerald-400/40 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/35 hover:border-emerald-300/60 hover:shadow-lg hover:shadow-emerald-500/20 hover:scale-105 transition-all duration-200 shadow-md select-none uppercase tracking-widest cursor-pointer focus:ring-2 focus:ring-emerald-400 focus:outline-none"
           >
             <FileText className="w-4 h-4" />
-            Full Report
+            Generate Report
           </Link>
           <button
             onClick={toggleCamera}

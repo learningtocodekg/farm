@@ -80,6 +80,8 @@ farm/
 
 ```bash
 cd backend
+python3 -m venv venv
+source venv/bin/activate
 ```
 
 Add your API key to `.env`:

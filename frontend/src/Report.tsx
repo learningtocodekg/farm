@@ -1,14 +1,41 @@
 import { Link } from 'react-router-dom';
 import { 
   ArrowLeft, Download, Activity, 
-  Droplets, Thermometer, AlertCircle, Bot, Sparkles, CheckCircle2
+  Droplets, Thermometer, AlertCircle, Bot, Sparkles, CheckCircle2, Loader2
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import reportData from './reportData.json';
+import { useEffect, useState } from 'react';
 
 export default function Report() {
-  const { analyst, markdownText, scores } = reportData;
+  const [reportData, setReportData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('http://localhost:8000/api/report')
+      .then(async res => {
+        if (!res.ok) {
+            let errorText = 'Failed to generate report';
+            try {
+                const errorData = await res.json();
+                errorText = errorData.detail || errorText;
+            } catch (e) {
+                // ignore parsing error
+            }
+            throw new Error(errorText);
+        }
+        return res.json();
+      })
+      .then(data => {
+        setReportData(data);
+        setLoading(false);
+      })
+      .catch(err => {
+        setError(err.message);
+        setLoading(false);
+      });
+  }, []);
 
   const categoryConfig: Record<string, any> = {
     moisture: { icon: <Droplets className="text-blue-400" />, color: 'bg-blue-400' },
@@ -16,6 +43,31 @@ export default function Report() {
     temperature: { icon: <Thermometer className="text-orange-400" />, color: 'bg-orange-400' },
     weed: { icon: <AlertCircle className="text-rose-400" />, color: 'bg-rose-400' },
   };
+
+  if (loading) {
+    return (
+      <div className="absolute inset-0 bg-[#0a0b0d] flex flex-col items-center justify-center text-emerald-400 z-50 pointer-events-auto">
+        <Loader2 className="w-12 h-12 animate-spin mb-4" />
+        <h2 className="text-xl font-medium tracking-wider">Generating AI Report...</h2>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="absolute inset-0 bg-[#0a0b0d] flex flex-col items-center justify-center text-rose-400 z-50 pointer-events-auto">
+        <AlertCircle className="w-12 h-12 mb-4" />
+        <h2 className="text-xl font-medium tracking-wider max-w-xl text-center">Error: {error}</h2>
+        <Link to="/" className="mt-6 px-4 py-2 bg-rose-500/20 rounded-lg border border-rose-500/50 hover:bg-rose-500/30 text-rose-300 transition-colors">
+          Return to Dashboard
+        </Link>
+      </div>
+    );
+  }
+
+  if (!reportData) return null;
+
+  const { analyst, markdownText, scores } = reportData;
 
   return (
     <div className="absolute inset-0 bg-[#0a0b0d] overflow-y-auto pointer-events-auto z-50 text-white selection:bg-emerald-500/30">
