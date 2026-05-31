@@ -2,15 +2,10 @@ import os
 import base64
 import asyncio
 import json
-from pathlib import Path
 from typing import List
 
 import httpx
-import google.generativeai as genai
 from fastapi import APIRouter, File, UploadFile, HTTPException
-from dotenv import load_dotenv
-
-load_dotenv()
 
 router = APIRouter()
 
@@ -62,8 +57,10 @@ Return ONLY the raw JSON object, without any markdown formatting blocks like ```
 """
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+GEMINI_URL = (
+    "https://generativelanguage.googleapis.com/v1beta/models/"
+    "gemini-2.0-flash:generateContent"
+)
 
 FARM_ANALYSIS_PROMPT = """You are an expert agricultural AI assistant analyzing farm photos.
 You are provided with up to 8 images representing the North, South, East, and West views from one or two points on the farm.
@@ -121,6 +118,7 @@ def _build_gemini_request(images_b64: List[tuple[str, str]]) -> dict:
 
 
 async def _call_gemini(
+    client: httpx.AsyncClient,
     images_b64: List[tuple[str, str]],
     batch_label: str,
 ) -> dict:
@@ -131,46 +129,35 @@ async def _call_gemini(
             detail="GEMINI_API_KEY environment variable is not set.",
         )
 
+    payload = _build_gemini_request(images_b64)
+    url = f"{GEMINI_URL}?key={GEMINI_API_KEY}"
+
     try:
-        model = genai.GenerativeModel("gemini-2.5-flash")
-
-        # Build image content for Gemini
-        image_parts = []
-        for idx, (b64_data, mime_type) in enumerate(images_b64):
-            point_label = "Point A" if idx < 4 else "Point B"
-            direction = DIRECTIONS[idx % 4]
-            image_parts.append(f"{point_label} {direction} View:")
-
-            # Convert base64 to bytes for Gemini
-            image_bytes = base64.b64decode(b64_data)
-            image_parts.append({
-                "mime_type": mime_type,
-                "data": b64_data,
-            })
-
-        image_parts.append(FARM_ANALYSIS_PROMPT)
-
-        # Call Gemini API
-        response = model.generate_content(
-            image_parts,
-            generation_config={
-                "temperature": 0.2,
-                "max_output_tokens": 2048,
-            }
+        response = await client.post(url, json=payload, timeout=120.0)
+        response.raise_for_status()
+        data = response.json()
+        text = (
+            data.get("candidates", [{}])[0]
+            .get("content", {})
+            .get("parts", [{}])[0]
+            .get("text", "No response generated.")
         )
-
-        text = response.text
-
+        
         try:
             analysis_json = json.loads(text)
         except json.JSONDecodeError:
             analysis_json = {"raw_text": text}
-
+            
         return {"batch": batch_label, "analysis": analysis_json}
-    except Exception as exc:
+    except httpx.HTTPStatusError as exc:
         raise HTTPException(
             status_code=502,
-            detail=f"Gemini API error on {batch_label}: {str(exc)}",
+            detail=f"Gemini API error on {batch_label}: {exc.response.text}",
+        )
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Network error calling Gemini on {batch_label}: {str(exc)}",
         )
 
 
@@ -205,11 +192,12 @@ async def analyze_photos(photos: List[UploadFile] = File(...)):
     # Split into chunks of 8 (Batches)
     batches = [images_b64[i:i + 8] for i in range(0, len(images_b64), 8)]
 
-    tasks = []
-    for i, batch_images in enumerate(batches):
-        tasks.append(_call_gemini(batch_images, f"Batch {i + 1}"))
+    async with httpx.AsyncClient() as client:
+        tasks = []
+        for i, batch_images in enumerate(batches):
+            tasks.append(_call_gemini(client, batch_images, f"Batch {i + 1}"))
 
-    results = await asyncio.gather(*tasks)
+        results = await asyncio.gather(*tasks)
 
     return {
         "total_photos": len(photos),
@@ -220,53 +208,31 @@ async def analyze_photos(photos: List[UploadFile] = File(...)):
 
 @router.get("/report")
 async def generate_report():
-    cached_report_path = Path(__file__).parent.parent / "frontend" / "src" / "reportData.json"
-    if cached_report_path.exists():
-        try:
-            return json.loads(cached_report_path.read_text())
-        except Exception:
-            pass
-
     if not GEMINI_API_KEY:
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY environment variable is not set.")
 
-    try:
-        model = genai.GenerativeModel("gemini-2.5-flash")
-        response = model.generate_content(
-            REPORT_PROMPT,
-            generation_config={
-                "temperature": 0.7,
-            }
-        )
-        text = response.text
-        if not text:
-            raise ValueError("Gemini API returned empty response")
+    payload = {
+        "contents": [{"parts": [{"text": REPORT_PROMPT}]}],
+        "generationConfig": {
+            "temperature": 0.7,
+            "responseMimeType": "application/json",
+        },
+    }
+    url = f"{GEMINI_URL}?key={GEMINI_API_KEY}"
 
-        # Strip markdown code blocks if present
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-            text = text.strip()
-
-        # Properly escape the text for JSON parsing
-        # Use json.loads on the encoded string to handle literal newlines
+    async with httpx.AsyncClient() as client:
         try:
-            report_data = json.loads(text)
-        except json.JSONDecodeError as e:
-            # Try encoding and decoding to handle raw newlines
-            text_bytes = text.encode('utf-8').decode('unicode-escape')
-            report_data = json.loads(text_bytes)
-
-        # Optionally cache the result
-        try:
-            cached_report_path.parent.mkdir(parents=True, exist_ok=True)
-            cached_report_path.write_text(json.dumps(report_data, indent=2))
-        except Exception:
-            pass
-
-        return report_data
-    except json.JSONDecodeError as e:
-        raise HTTPException(status_code=500, detail=f"Failed to parse Gemini response as JSON: {str(e)}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Gemini API error: {str(e)}")
+            response = await client.post(url, json=payload, timeout=60.0)
+            response.raise_for_status()
+            data = response.json()
+            text = (
+                data.get("candidates", [{}])[0]
+                .get("content", {})
+                .get("parts", [{}])[0]
+                .get("text", "{}")
+            )
+            return json.loads(text)
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(status_code=e.response.status_code, detail=f"Gemini API error: {e.response.text}")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))

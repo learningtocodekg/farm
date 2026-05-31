@@ -5,6 +5,7 @@ interface Anomaly {
   id: string;
   type: 'weed' | 'dry_spot' | 'pest';
   position: [number, number, number];
+  count?: number;
 }
 
 const TYPE_CONFIG = {
@@ -99,7 +100,7 @@ export default function WeedMarkers() {
               whiteSpace: 'nowrap',
               letterSpacing: 1,
             }}>
-              {cfg.label}
+              {cfg.label}{anomaly.count != null && anomaly.count > 1 ? ` ×${anomaly.count}` : ''}
             </div>
             {/* Sphere dot */}
             <div style={{

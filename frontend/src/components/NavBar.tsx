@@ -1,6 +1,8 @@
 import { NavLink } from 'react-router-dom';
 import { LayoutDashboard, Box, Sprout } from 'lucide-react';
 
+const FONT = '"Hanken Grotesk", system-ui, sans-serif';
+
 export default function NavBar() {
   return (
     <nav
@@ -13,26 +15,67 @@ export default function NavBar() {
         zIndex: 100,
         display: 'flex',
         alignItems: 'center',
-        gap: 4,
-        padding: '6px 16px',
-        background: 'rgba(10, 11, 13, 0.85)',
-        borderBottom: '1px solid rgba(255,255,255,0.08)',
-        backdropFilter: 'blur(10px)',
-        WebkitBackdropFilter: 'blur(10px)',
+        height: 48,
+        padding: '0 24px',
+        gap: 2,
+        background: '#0a0b0d',
+        borderBottom: '1px solid rgba(199,239,0,0.14)',
       }}
     >
-      <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, fontFamily: 'monospace', marginRight: 12, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-        FarmOS
-      </span>
+      {/* Brand */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          marginRight: 20,
+          flexShrink: 0,
+        }}
+      >
+        <div
+          style={{
+            width: 22,
+            height: 22,
+            background: '#c7ef00',
+            borderRadius: 5,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Sprout size={13} color="#1a2200" strokeWidth={2.5} />
+        </div>
+        <span
+          style={{
+            fontFamily: FONT,
+            fontSize: 15,
+            fontWeight: 700,
+            color: '#ffffff',
+            letterSpacing: '-0.02em',
+          }}
+        >
+          Farm<span style={{ color: '#c7ef00' }}>OS</span>
+        </span>
+      </div>
 
-      <NavItem to="/" icon={<LayoutDashboard size={14} />} label="Dashboard" end />
-      <NavItem to="/3d" icon={<Box size={14} />} label="3D Render View" />
-      <NavItem to="/soil" icon={<Sprout size={14} />} label="Soil Analysis" />
+      <NavItem to="/" icon={<LayoutDashboard size={13} />} label="Dashboard" end />
+      <NavItem to="/3d" icon={<Box size={13} />} label="3D View" />
+      <NavItem to="/soil" icon={<Sprout size={13} />} label="Soil Analysis" />
     </nav>
   );
 }
 
-function NavItem({ to, icon, label, end }: { to: string; icon: React.ReactNode; label: string; end?: boolean }) {
+function NavItem({
+  to,
+  icon,
+  label,
+  end,
+}: {
+  to: string;
+  icon: React.ReactNode;
+  label: string;
+  end?: boolean;
+}) {
   return (
     <NavLink
       to={to}
@@ -41,17 +84,17 @@ function NavItem({ to, icon, label, end }: { to: string; icon: React.ReactNode; 
         display: 'flex',
         alignItems: 'center',
         gap: 6,
-        padding: '5px 12px',
+        padding: '5px 14px',
         borderRadius: 6,
-        fontFamily: 'monospace',
-        fontSize: 11,
+        fontFamily: FONT,
+        fontSize: 13,
         fontWeight: isActive ? 600 : 400,
-        color: isActive ? '#22c55e' : 'rgba(180,200,220,0.7)',
-        background: isActive ? 'rgba(34,197,94,0.1)' : 'transparent',
-        border: isActive ? '1px solid rgba(34,197,94,0.25)' : '1px solid transparent',
+        color: isActive ? '#1a2200' : 'rgba(255,255,255,0.55)',
+        background: isActive ? '#c7ef00' : 'transparent',
         textDecoration: 'none',
-        transition: 'all 0.15s ease',
+        transition: 'color 0.15s ease, background 0.15s ease',
         cursor: 'pointer',
+        letterSpacing: '-0.01em',
       })}
     >
       {icon}

@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Weed Detection Review</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0d0d0d; color: #ccc; font-family: monospace; font-size: 13px; }
+  h1 { padding: 20px; color: #aef; border-bottom: 1px solid #222; }
+  #status { padding: 12px 20px; color: #fa0; border-bottom: 1px solid #222; }
+
+  .frame-section { border-bottom: 3px solid #1a1a1a; padding: 24px 20px; }
+  .frame-title { font-size: 15px; color: #8cf; margin-bottom: 16px; }
+
+  /* ---- Step 1 row ---- */
+  .step-label {
+    font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
+    color: #555; margin-bottom: 8px;
+  }
+  .step-label span { color: #8cf; }
+
+  .full-row { margin-bottom: 24px; }
+  .full-row canvas { width: 100%; border: 1px solid #333; border-radius: 4px; display: block; }
+
+  /* ---- Step 2 crops ---- */
+  .crops-row { display: flex; flex-wrap: wrap; gap: 12px; }
+  .crop-card {
+    background: #111;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    padding: 10px;
+    flex: 0 0 auto;
+    max-width: 380px;
+  }
+  .crop-card.has-weeds { border-color: #2a4a2a; }
+  .crop-card-label { font-size: 10px; color: #555; margin-bottom: 6px; }
+  .crop-card canvas { display: block; border: 1px solid #222; border-radius: 3px; max-width: 100%; }
+  .weed-count { margin-top: 6px; font-size: 11px; color: #4f4; }
+  .weed-count.zero { color: #444; }
+
+  .no-anomaly { color: #444; font-style: italic; padding: 8px 0; }
+  .legend { display: flex; gap: 20px; padding: 10px 20px; border-bottom: 1px solid #222; font-size: 11px; }
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+</style>
+</head>
+<body>
+
+<h1>Weed Detection Review</h1>
+<div class="legend">
+  <span><span class="swatch" style="background:#f90"></span>Soil region (Step 1)</span>
+  <span><span class="swatch" style="background:#00ff88"></span>Weed (Step 2)</span>
+</div>
+<div id="status">Loading...</div>
+<div id="root"></div>
+
+<script>
+const ANOMALIES_PATH = '/frontend/public/anomalies.json';
+const MANIFEST_PATH  = '/scripts/frames/manifest.json';
+const SOIL_COLOR     = '#f90';
+const WEED_COLOR     = '#00ff88';
+
+async function loadJSON(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(`${path}: ${r.status}`);
+  return r.json();
+}
+
+function loadImage(src) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload  = () => res(img);
+    img.onerror = () => rej(new Error(`Failed to load ${src}`));
+    img.src = src;
+  });
+}
+
+// Draw an image onto a canvas with labelled boxes
+function makeCanvas(img, boxes, color, labelFn) {
+  const c = document.createElement('canvas');
+  c.width  = img.naturalWidth  || img.width;
+  c.height = img.naturalHeight || img.height;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+
+  for (let i = 0; i < boxes.length; i++) {
+    const b = boxes[i];
+    ctx.strokeStyle = color;
+    ctx.lineWidth = Math.max(2, c.width / 400);
+    ctx.setLineDash([6, 4]);
+    ctx.strokeRect(b.x1, b.y1, b.x2 - b.x1, b.y2 - b.y1);
+    ctx.setLineDash([]);
+
+    const label = labelFn ? labelFn(i, b) : String(i + 1);
+    const fs = Math.max(11, c.width / 60);
+    ctx.font = `bold ${fs}px monospace`;
+    const tw = ctx.measureText(label).width;
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(b.x1, b.y1 - fs - 4, tw + 8, fs + 4);
+    ctx.fillStyle = color;
+    ctx.fillText(label, b.x1 + 4, b.y1 - 4);
+  }
+  return c;
+}
+
+// Crop a canvas region
+function cropCanvas(src, b) {
+  const w = b.x2 - b.x1, h = b.y2 - b.y1;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  c.getContext('2d').drawImage(src, b.x1, b.y1, w, h, 0, 0, w, h);
+  return c;
+}
+
+async function buildFrame(root, entry, anomalies) {
+  const frameFile = entry.frame;
+  const framePath = `/scripts/frames/${frameFile}`;
+
+  // Group anomalies by which soil box they came from (via soil_bbox_px key)
+  // Build unique soil boxes list
+  const soilBoxMap = new Map(); // key = JSON string of soil_bbox_px
+  for (const a of anomalies) {
+    if (!a.soil_bbox_px) continue;
+    const key = JSON.stringify(a.soil_bbox_px);
+    if (!soilBoxMap.has(key)) soilBoxMap.set(key, { box: a.soil_bbox_px, weeds: [] });
+    soilBoxMap.get(key).weeds.push(a);
+  }
+  const soilRegions = [...soilBoxMap.values()];
+
+  // Also collect soil boxes that had 0 weeds — not in anomalies, so we can't
+  // recover them here. We'll just show what we have.
+
+  const section = document.createElement('div');
+  section.className = 'frame-section';
+
+  const title = document.createElement('div');
+  title.className = 'frame-title';
+  title.textContent = `${frameFile}  —  ${soilRegions.length} soil region(s), ${anomalies.length} weed(s)`;
+  section.appendChild(title);
+
+  let img;
+  try {
+    img = await loadImage(framePath);
+  } catch (e) {
+    const err = document.createElement('div');
+    err.className = 'no-anomaly';
+    err.textContent = `Could not load image: ${e.message}`;
+    section.appendChild(err);
+    root.appendChild(section);
+    return;
+  }
+
+  // ---- Step 1: full image with soil boxes ----
+  const step1Wrap = document.createElement('div');
+  step1Wrap.className = 'full-row';
+  const step1Label = document.createElement('div');
+  step1Label.className = 'step-label';
+  step1Label.innerHTML = 'Step 1 — <span>Soil regions detected</span>';
+  step1Wrap.appendChild(step1Label);
+
+  if (soilRegions.length === 0 && anomalies.length === 0) {
+    const msg = document.createElement('div');
+    msg.className = 'no-anomaly';
+    msg.textContent = 'No soil regions in anomalies.json for this frame (run detect.py first)';
+    step1Wrap.appendChild(msg);
+  } else {
+    const soilBoxes = soilRegions.map(r => r.box);
+    const c1 = makeCanvas(img, soilBoxes, SOIL_COLOR, (i) => `soil ${i + 1}`);
+    step1Wrap.appendChild(c1);
+  }
+  section.appendChild(step1Wrap);
+
+  // ---- Step 2: one crop card per soil region ----
+  if (soilRegions.length > 0) {
+    const step2Label = document.createElement('div');
+    step2Label.className = 'step-label';
+    step2Label.innerHTML = 'Step 2 — <span>Weeds found within each soil crop</span>';
+    section.appendChild(step2Label);
+
+    // Draw the full image onto an off-screen canvas so we can crop it
+    const fullCanvas = document.createElement('canvas');
+    fullCanvas.width  = img.naturalWidth;
+    fullCanvas.height = img.naturalHeight;
+    fullCanvas.getContext('2d').drawImage(img, 0, 0);
+
+    const cropsRow = document.createElement('div');
+    cropsRow.className = 'crops-row';
+
+    for (let si = 0; si < soilRegions.length; si++) {
+      const { box, weeds } = soilRegions[si];
+
+      // Translate weed bboxes to crop-local coords
+      const localWeeds = weeds.map(a => ({
+        x1: a.bbox_px.x1 - box.x1,
+        y1: a.bbox_px.y1 - box.y1,
+        x2: a.bbox_px.x2 - box.x1,
+        y2: a.bbox_px.y2 - box.y1,
+      }));
+
+      const cropSrc = cropCanvas(fullCanvas, box);
+
+      // Build a temp image from the crop canvas so makeCanvas can drawImage it
+      const cropImg = new Image();
+      cropImg.width  = cropSrc.width;
+      cropImg.height = cropSrc.height;
+      // Draw weeds onto the crop
+      const annotated = makeCanvas(cropSrc, localWeeds, WEED_COLOR, (i) => `weed ${i + 1}`);
+
+      const card = document.createElement('div');
+      card.className = 'crop-card' + (weeds.length > 0 ? ' has-weeds' : '');
+
+      const cardLabel = document.createElement('div');
+      cardLabel.className = 'crop-card-label';
+      cardLabel.textContent = `Soil ${si + 1}  (${box.x1},${box.y1})→(${box.x2},${box.y2})  ${box.x2-box.x1}×${box.y2-box.y1}px`;
+      card.appendChild(cardLabel);
+
+      // Limit display width
+      const maxW = 360;
+      const scale = Math.min(1, maxW / annotated.width);
+      annotated.style.width  = Math.round(annotated.width  * scale) + 'px';
+      annotated.style.height = Math.round(annotated.height * scale) + 'px';
+      card.appendChild(annotated);
+
+      const countEl = document.createElement('div');
+      countEl.className = 'weed-count' + (weeds.length === 0 ? ' zero' : '');
+      countEl.textContent = weeds.length === 0 ? 'no weeds detected' : `${weeds.length} weed(s) detected`;
+      card.appendChild(countEl);
+
+      cropsRow.appendChild(card);
+    }
+
+    section.appendChild(cropsRow);
+  }
+
+  root.appendChild(section);
+}
+
+async function build() {
+  const status = document.getElementById('status');
+  const root   = document.getElementById('root');
+
+  let anomalies, manifest;
+  try {
+    [anomalies, manifest] = await Promise.all([
+      loadJSON(ANOMALIES_PATH),
+      loadJSON(MANIFEST_PATH),
+    ]);
+  } catch (e) {
+    status.textContent = `Error: ${e.message}`;
+    return;
+  }
+
+  const byFrame = {};
+  for (const a of anomalies) {
+    (byFrame[a.frame] = byFrame[a.frame] || []).push(a);
+  }
+
+  status.textContent = `${anomalies.length} weed(s) across ${manifest.frames.length} frame(s)`;
+
+  for (const entry of manifest.frames) {
+    await buildFrame(root, entry, byFrame[entry.frame] || []);
+  }
+}
+
+build();
+</script>
+</body>
+</html>

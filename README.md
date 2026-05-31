@@ -90,9 +90,11 @@ Add your API key to `.env`:
 GEMINI_API_KEY=your_key_here
 ```
 
-Install dependencies and start the server:
+Create a virtual environment, activate it, install dependencies, and start the server:
 
 ```bash
+python3 -m venv venv
+source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
 pip install -r requirements.txt
 uvicorn main:app --reload
 ```

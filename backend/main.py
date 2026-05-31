@@ -9,15 +9,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from dotenv import load_dotenv
 
 from agents.farm_agent import router as agent_router
 from agents.farm_ops_agent import router as ops_router
 from agents.farm_robot_agent import router as robot_router
 from gemini_logic import router as gemini_router
 from heatmap_pipeline import process_topdown
-
-load_dotenv()
 
 app = FastAPI(title="Farm Analysis API")
 

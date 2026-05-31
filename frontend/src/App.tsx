@@ -11,7 +11,6 @@ function DashboardPage() {
   return (
     <>
       <Overlay />
-      <WeedMarkers />
     </>
   );
 }
@@ -22,7 +21,7 @@ export default function App() {
       <NavBar />
       <Routes>
         <Route path="/" element={<DashboardPage />} />
-        <Route path="/3d" element={<ThreeDViewer />} />
+        <Route path="/3d" element={<><ThreeDViewer /><WeedMarkers /></>} />
         <Route path="/review" element={<ReviewPage />} />
         <Route path="/report" element={<Report />} />
         <Route path="/soil" element={<SoilDashboard />} />
