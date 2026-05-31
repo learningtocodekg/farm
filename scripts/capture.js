@@ -156,7 +156,7 @@ async function capturePass(page, sideConfig, waypoints, side) {
   await page.setViewport(VIEWPORT);
 
   console.log('Opening http://localhost:5173 …');
-  await page.goto('http://localhost:5173', { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.goto('http://localhost:5173?capture=1', { waitUntil: 'domcontentloaded', timeout: 30000 });
 
   console.log('Waiting for splat to load…');
   await page.evaluate(() =>

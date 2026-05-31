@@ -11,11 +11,17 @@ const viewer = new GS3D.Viewer({
   cameraUp: [0, -1, 0],
   initialCameraPosition: [0, -1, 5],
   initialCameraLookAt: [0, 0, 0],
+  // quality settings
+  antialiased: true,
   gpuAcceleratedSort: false,
   sharedMemoryForWorkers: false,
-  antialiased: true,
-  selfDrivenMode: true,
   dynamicScene: false,
+  integerBasedSort: true,
+  splatSortDistanceMapPrecision: 20,       // max precision for integer sort
+  sceneRevealMode: 2,                      // Instant — no fade-in blur
+  sphericalHarmonicsDegree: 2,             // full SH for view-dependent color
+  devicePixelRatio: window.devicePixelRatio, // render at native screen resolution
+  selfDrivenMode: true,
 });
 
 (window as any).gsplatViewer = viewer;

@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -53,10 +53,10 @@ class Viewport(BaseModel):
 
 
 class FlightPathConfig(BaseModel):
-    leftWaypoints: list[CameraSnapshot]
+    leftWaypoints:  list[CameraSnapshot]
     rightWaypoints: list[CameraSnapshot]
-    left: SideConfig
-    right: SideConfig
+    left:  Optional[SideConfig]
+    right: Optional[SideConfig]
     viewport: Viewport
 
 

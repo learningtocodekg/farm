@@ -121,6 +121,24 @@ function screenToWorld(clientX: number, clientY: number, rect: DOMRect): [number
   return [hit.x, hit.y, hit.z];
 }
 
+const IS_CAPTURE = new URLSearchParams(window.location.search).has('capture');
+
+// ── helpers to hydrate saved data ─────────────────────────────────────────────
+
+function lineConfigFromSaved(saved: any): LineConfig {
+  if (!saved?.flightLine?.start || !saved?.flightLine?.end || !saved?.cropPt) return { ...EMPTY_LINE };
+  return {
+    start:  saved.flightLine.start  as [number,number,number],
+    end:    saved.flightLine.end    as [number,number,number],
+    cropPt: saved.cropPt            as [number,number,number],
+  };
+}
+
+function snapshotsFromSaved(arr: any[]): CameraSnapshot[] {
+  if (!Array.isArray(arr) || arr.length !== 3) return [];
+  return arr as CameraSnapshot[];
+}
+
 // ── component ─────────────────────────────────────────────────────────────────
 
 export default function Overlay() {
@@ -139,6 +157,23 @@ export default function Overlay() {
   useEffect(() => { calibRef.current = calib; }, [calib]);
   const modeRef = useRef(mode);
   useEffect(() => { modeRef.current = mode; }, [mode]);
+
+  // Load existing flight-path.json on mount so prior calibration survives reload
+  useEffect(() => {
+    fetch('/flight-path.json')
+      .then(r => r.ok ? r.json() : null)
+      .catch(() => null)
+      .then((saved: any) => {
+        if (!saved) return;
+        setCalib(c => ({
+          ...c,
+          leftWaypoints:  snapshotsFromSaved(saved.leftWaypoints),
+          rightWaypoints: snapshotsFromSaved(saved.rightWaypoints),
+          left:  lineConfigFromSaved(saved.left),
+          right: lineConfigFromSaved(saved.right),
+        }));
+      });
+  }, []);
 
   // Fitted lines derived from waypoints (null until 3 waypoints captured)
   const leftLine  = calib.leftWaypoints.length  === 3 ? fitLine(calib.leftWaypoints)  : null;
@@ -361,52 +396,49 @@ export default function Overlay() {
 
   // ── save ─────────────────────────────────────────────────────────────────
 
-  const canSave =
-    calib.leftWaypoints.length  === 3 && calib.rightWaypoints.length === 3 &&
-    calib.left.start  && calib.left.end  && calib.left.cropPt &&
-    calib.right.start && calib.right.end && calib.right.cropPt;
+  const leftComplete  = calib.leftWaypoints.length  === 3 && !!(calib.left.start  && calib.left.end  && calib.left.cropPt);
+  const rightComplete = calib.rightWaypoints.length === 3 && !!(calib.right.start && calib.right.end && calib.right.cropPt);
+  const canSave = leftComplete || rightComplete;
 
   async function save() {
     if (!canSave) return;
     setSaveStatus('saving');
     try {
       const c = calibRef.current;
-      const lLine = fitLine(c.leftWaypoints);
-      const rLine = fitLine(c.rightWaypoints);
 
-      // Crop plane per side — vertical plane through cropPt, normal = flightDir
       function cropPlane(cropPt: [number,number,number], dir: [number,number,number]) {
         const n = norm3([dir[0], 0, dir[2]]) as [number,number,number];
-        const d = dot3(n, cropPt);
-        return { normal: n, d };
+        return { normal: n, d: dot3(n, cropPt) };
       }
-
-      // Frame width from middle waypoint FOV + dist to crop row
       function frameWidth(snaps: CameraSnapshot[], cropPt: [number,number,number]) {
         const nom = snaps[1];
         const dist = len3(sub3(nom.position, cropPt));
-        const aspect = window.innerWidth / window.innerHeight;
         const fovRad = (nom.fov * Math.PI) / 180;
-        return 2 * dist * Math.tan(fovRad / 2) * aspect;
+        return 2 * dist * Math.tan(fovRad / 2) * (window.innerWidth / window.innerHeight);
+      }
+      function buildSide(waypoints: CameraSnapshot[], line: LineConfig, lineDir: [number,number,number]) {
+        return {
+          flightLine: { start: line.start, end: line.end },
+          cropPt:     line.cropPt,
+          cropPlane:  cropPlane(line.cropPt!, lineDir),
+          flightDir:  lineDir,
+          frameWidth: frameWidth(waypoints, line.cropPt!),
+        };
       }
 
+      // Fetch existing saved data so we can merge — saving one side never wipes the other
+      const existing = await fetch('/flight-path.json')
+        .then(r => r.ok ? r.json() : {})
+        .catch(() => ({}));
+
+      const lLine = leftComplete  ? fitLine(c.leftWaypoints)  : null;
+      const rLine = rightComplete ? fitLine(c.rightWaypoints) : null;
+
       const body = {
-        leftWaypoints:  c.leftWaypoints,
-        rightWaypoints: c.rightWaypoints,
-        left: {
-          flightLine:  { start: c.left.start,  end: c.left.end  },
-          cropPt:      c.left.cropPt,
-          cropPlane:   cropPlane(c.left.cropPt!,  lLine.dir),
-          flightDir:   lLine.dir,
-          frameWidth:  frameWidth(c.leftWaypoints, c.left.cropPt!),
-        },
-        right: {
-          flightLine:  { start: c.right.start, end: c.right.end },
-          cropPt:      c.right.cropPt,
-          cropPlane:   cropPlane(c.right.cropPt!, rLine.dir),
-          flightDir:   rLine.dir,
-          frameWidth:  frameWidth(c.rightWaypoints, c.right.cropPt!),
-        },
+        leftWaypoints:  leftComplete  ? c.leftWaypoints  : (existing.leftWaypoints  ?? []),
+        rightWaypoints: rightComplete ? c.rightWaypoints : (existing.rightWaypoints ?? []),
+        left:  leftComplete  ? buildSide(c.leftWaypoints,  c.left,  lLine!.dir) : (existing.left  ?? null),
+        right: rightComplete ? buildSide(c.rightWaypoints, c.right, rLine!.dir) : (existing.right ?? null),
         viewport: {
           width:  window.innerWidth,
           height: window.innerHeight,
@@ -513,7 +545,7 @@ export default function Overlay() {
       )}
 
       {/* ── Main control panel ── */}
-      {status === 'loaded' && !isTopDown && (
+      {status === 'loaded' && !isTopDown && !IS_CAPTURE && (
         <div data-ui="true"
           className="absolute top-4 right-4 flex flex-col gap-2 pointer-events-auto"
           style={{ zIndex: 20, minWidth: 230 }}>
@@ -559,7 +591,9 @@ export default function Overlay() {
               {saveStatus === 'saving' ? 'Saving…'
                 : saveStatus === 'saved'  ? '✓ Saved!'
                 : saveStatus === 'error'  ? '✗ Failed'
-                : 'Save Calibration'}
+                : leftComplete && rightComplete ? 'Save Both Sides'
+                : leftComplete  ? 'Save Left Side'
+                : 'Save Right Side'}
             </button>
           )}
 
