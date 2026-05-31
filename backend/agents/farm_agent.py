@@ -6,7 +6,7 @@ soil health, crop diseases, pests, irrigation, and other farm topics.
 
 Exposes a FastAPI router so it can be mounted onto the existing main.py app:
 
-    from farm_agent import router as agent_router
+    from agents.farm_agent import router as agent_router
     app.include_router(agent_router, prefix="/api/agent")
 
 Endpoints

@@ -7,7 +7,7 @@ identifying weeds, picking them, or spraying specific amounts of fertilizer.
 
 Mounted onto main.py as:
 
-    from farm_robot_agent import router as robot_router
+    from agents.farm_robot_agent import router as robot_router
     app.include_router(robot_router, prefix="/api/robot")
 
 Endpoints

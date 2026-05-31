@@ -7,9 +7,9 @@ import httpx
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from farm_agent import router as agent_router
-from farm_ops_agent import router as ops_router
-from farm_robot_agent import router as robot_router
+from agents.farm_agent import router as agent_router
+from agents.farm_ops_agent import router as ops_router
+from agents.farm_robot_agent import router as robot_router
 
 app = FastAPI(title="Farm Analysis API")
 

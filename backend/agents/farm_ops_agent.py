@@ -18,7 +18,7 @@ mock data so the agent remains fully functional during development.
 
 Mounted onto main.py as:
 
-    from farm_ops_agent import router as ops_router
+    from agents.farm_ops_agent import router as ops_router
     app.include_router(ops_router, prefix="/api/ops-agent")
 
 Endpoints
