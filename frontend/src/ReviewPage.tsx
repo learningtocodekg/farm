@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import * as THREE from 'three';
 
 function getViewer() { return (window as any).gsplatViewer ?? null; }
 

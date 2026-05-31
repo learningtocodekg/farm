@@ -45,7 +45,7 @@ viewer
     // If loaded inside the review iframe, teleport camera to the frame position
     const params = new URLSearchParams(window.location.search);
     if (params.has('cx')) {
-      import('three').then(({ Quaternion, Vector3, Euler }) => {
+      import('three').then(({ Quaternion, Vector3 }) => {
         const px = parseFloat(params.get('cx')!);
         const py = parseFloat(params.get('cy')!);
         const pz = parseFloat(params.get('cz')!);

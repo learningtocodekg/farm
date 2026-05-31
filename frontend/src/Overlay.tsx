@@ -2,16 +2,16 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import * as THREE from 'three';
 import {
-  ShieldAlert, Sprout, FileText,
-  Bot, CheckCircle, AlertCircle
+  ShieldAlert, Sprout, FileText, Bot,
 } from 'lucide-react';
 import { HeatmapLayer, LAYER_GRADIENTS, LAYER_RANGES, COLOR_SCALES, mapColor } from './components/SoilHeatmap';
 import SoilSensorOverlay from './components/SoilSensorOverlay';
 import ProblemMarkers from './ProblemMarkers';
 import {
-  fetchSoilSensors, fetchAgentLogs, fetchAmbientConditions, fetchForecast, fetchProblems, fetchAllWeeds,
-  SoilSensor, AgentLog, AmbientConditions, Forecast, Problem, WeedInfo,
+  fetchSoilSensors, fetchAgentLogs, fetchAmbientConditions, fetchProblems, fetchAllWeeds,
+  SoilSensor, AgentLog, AmbientConditions, Problem, WeedInfo,
 } from './lib/db';
+import cachedReport from './reportData.json';
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
@@ -157,7 +157,7 @@ function snapshotsFromSaved(arr: any[]): CameraSnapshot[] {
 
 export default function Overlay() {
   // Field / Soil sub-mode
-  const [pageMode, setPageMode] = useState<'field' | 'soil'>('field');
+  const [pageMode] = useState<'field' | 'soil'>('field');
 
   // Camera pan + height for top-down view
   const [panX] = useState(-1.25);
@@ -218,15 +218,17 @@ export default function Overlay() {
   // Firestore data
   const [agentLogs, setAgentLogs]       = useState<AgentLog[]>([]);
   const [ambient, setAmbient]           = useState<AmbientConditions | null>(null);
-  const [forecast, setForecast]         = useState<Forecast | null>(null);
   const [problems, setProblems]         = useState<Problem[]>([]);
   const [weedDb, setWeedDb]             = useState<Record<string, WeedInfo>>({});
   const [soilSensors, setSoilSensors]   = useState<SoilSensor[]>([]);
 
+  // Report panel state
+  const [reportData, setReportData]     = useState<any>(cachedReport);
+  const [reportLoading, setReportLoading] = useState(false);
+
   useEffect(() => {
     fetchAgentLogs().then(setAgentLogs);
     fetchAmbientConditions().then(setAmbient);
-    fetchForecast().then(setForecast);
     fetchProblems().then(setProblems);
     fetchAllWeeds().then(weeds => {
       const map: Record<string, WeedInfo> = {};
@@ -821,7 +823,7 @@ export default function Overlay() {
             </div>
           </section>
 
-          {/* RIGHT — Ambient Conditions + Forecast (col-span-3) */}
+          {/* RIGHT — Ambient Conditions + Farm Report Summary (col-span-3) */}
           <section className="col-span-3 flex flex-col overflow-y-auto pointer-events-auto" style={{ background: BG, border: BORDER, borderLeft: 'none' }}>
             <div className="flex-shrink-0 text-xs font-bold uppercase tracking-widest" style={{ padding: '16px 20px', borderBottom: BORDER, background: '#ebebeb', color: '#1b1b1b' }}>
               Ambient Conditions
@@ -832,7 +834,13 @@ export default function Overlay() {
               <InstitutionalSensor label="UV INDEX" value={ambient ? String(ambient.uvIndex) : '—'} unit="" badge={ambient && ambient.uvIndex >= 6 ? 'HIGH' : undefined} badgeColor="#b97b00" borderTop />
               <InstitutionalSensor label="SOLAR RAD." value={ambient ? String(ambient.solarRadiation) : '—'} unit="W/m²" borderLeft borderTop />
             </div>
-            <InstitutionalForecast forecast={forecast} />
+            <ReportPanel reportData={reportData} loading={reportLoading} onGenerate={() => {
+              setReportLoading(true);
+              fetch('http://localhost:8000/api/report?fresh=true')
+                .then(r => r.json())
+                .then(d => { setReportData(d); setReportLoading(false); })
+                .catch(() => setReportLoading(false));
+            }} />
           </section>
 
         </div>
@@ -1069,41 +1077,93 @@ function InstitutionalSensor({ label, value, unit, badge, badgeColor, borderLeft
   );
 }
 
-function InstitutionalForecast({ forecast }: { forecast: import('./lib/db').Forecast | null }) {
-  const past   = forecast?.past   ?? [];
-  const future = forecast?.future ?? [];
+function ReportPanel({ reportData, loading, onGenerate }: { reportData: any; loading: boolean; onGenerate: () => void }) {
   const BORDER = '1px solid #1b1b1b';
-  const SUBTLE = '1px solid #c8c8c8';
-  if (!forecast) return (
-    <div className="flex flex-col flex-1 items-center justify-center" style={{ color: '#767676', fontSize: '0.75rem' }}>
-      Loading forecast…
-    </div>
-  );
+  const scores = reportData?.scores;
+
+  const categoryMeta: Record<string, { label: string; color: string }> = {
+    moisture:    { label: 'Moisture',    color: '#3b82f6' },
+    nutrient:    { label: 'Nutrients',   color: '#22c55e' },
+    temperature: { label: 'Temperature', color: '#f97316' },
+    weed:        { label: 'Weed Control', color: '#ef4444' },
+  };
+
   return (
-    <div className="flex flex-col flex-1">
-      <div className="flex justify-between items-center" style={{ padding: '16px 20px', borderBottom: BORDER, background: '#ebebeb' }}>
-        <span style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: '#1b1b1b' }}>7-Day Temperature Forecast</span>
+    <div className="flex flex-col flex-1 overflow-y-auto">
+      {/* Header row */}
+      <div className="flex items-center justify-between flex-shrink-0" style={{ padding: '14px 20px', borderBottom: BORDER, background: '#ebebeb' }}>
+        <span style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: '#1b1b1b' }}>
+          AI Farm Report
+        </span>
+        <div className="flex items-center gap-2">
+          <Link
+            to="/report"
+            style={{ fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: '#536600', textDecoration: 'none', padding: '4px 10px', border: '1px solid #536600', borderRadius: 4 }}
+          >
+            Full Report →
+          </Link>
+          <button
+            onClick={onGenerate}
+            disabled={loading}
+            style={{ fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: loading ? '#999' : '#1b1b1b', background: 'none', border: '1px solid #c8c8c8', borderRadius: 4, padding: '4px 10px', cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+          >
+            {loading ? '...' : '↺ Generate'}
+          </button>
+        </div>
       </div>
-      <div style={{ padding: '10px 16px 4px', fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: '#767676', borderBottom: SUBTLE }}>← Past {past.length} Days</div>
-      <div className={`grid grid-cols-${past.length || 4}`} style={{ borderBottom: BORDER }}>
-        {past.map((d, i) => (
-          <div key={i} className="flex flex-col items-center" style={{ padding: '12px 8px', borderRight: i < past.length - 1 ? SUBTLE : 'none', gap: 4 }}>
-            <span style={{ fontSize: '0.65rem', fontWeight: 600, textTransform: 'uppercase', color: '#474747' }}>{d.day}</span>
-            <span style={{ fontSize: '1.2rem' }}>{d.icon}</span>
-            <span style={{ fontFamily: 'monospace', fontSize: '0.8rem', fontWeight: 700, color: '#1b1b1b' }}>{d.temp}°</span>
+
+      {/* Overall score + stats */}
+      {reportData && (
+        <>
+          <div className="grid grid-cols-3 flex-shrink-0" style={{ borderBottom: BORDER }}>
+            <div className="flex flex-col items-center justify-center" style={{ padding: '16px 8px', borderRight: BORDER }}>
+              <span style={{ fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: '#767676', marginBottom: 4 }}>Overall Score</span>
+              <span style={{ fontSize: '1.8rem', fontWeight: 800, color: '#1b1b1b', lineHeight: 1 }}>{scores?.overall?.value}</span>
+              <span style={{ fontSize: '0.7rem', color: '#767676' }}>/ {scores?.overall?.max ?? 100}</span>
+            </div>
+            <div className="flex flex-col items-center justify-center" style={{ padding: '16px 8px', borderRight: BORDER }}>
+              <span style={{ fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: '#767676', marginBottom: 4 }}>Anomalies</span>
+              <span style={{ fontSize: '1.8rem', fontWeight: 800, color: reportData.anomalyCount > 3 ? '#c0392b' : '#1b1b1b', lineHeight: 1 }}>{reportData.anomalyCount ?? '—'}</span>
+              <span style={{ fontSize: '0.7rem', color: '#767676' }}>detected</span>
+            </div>
+            <div className="flex flex-col items-center justify-center" style={{ padding: '16px 8px' }}>
+              <span style={{ fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: '#767676', marginBottom: 4 }}>Soil Health</span>
+              <span style={{ fontSize: '1.8rem', fontWeight: 800, color: '#4a8220', lineHeight: 1 }}>{reportData.soilHealthIndex ?? '—'}</span>
+              <span style={{ fontSize: '0.7rem', color: '#767676' }}>/ 100</span>
+            </div>
           </div>
-        ))}
-      </div>
-      <div style={{ padding: '10px 16px 4px', fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: '#767676', borderBottom: SUBTLE }}>Next {future.length} Days →</div>
-      <div className={`grid grid-cols-${future.length || 3}`} style={{ background: '#ebebeb' }}>
-        {future.map((d, i) => (
-          <div key={i} className="flex flex-col items-center" style={{ padding: '16px 8px', borderRight: i < future.length - 1 ? BORDER : 'none', gap: 4 }}>
-            <span style={{ fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', color: '#1b1b1b' }}>{d.day}</span>
-            <span style={{ fontSize: '1.4rem' }}>{d.icon}</span>
-            <span style={{ fontFamily: 'monospace', fontSize: '1rem', fontWeight: 700, color: '#4a8220' }}>{d.tempHigh ?? d.temp}°</span>
+
+          {/* Category score bars */}
+          <div className="flex flex-col flex-shrink-0" style={{ padding: '14px 20px', gap: 10, borderBottom: BORDER }}>
+            {(scores?.categories ?? []).map((cat: any) => {
+              const meta = categoryMeta[cat.id] ?? { label: cat.title, color: '#767676' };
+              const pct = (cat.score / cat.max) * 100;
+              return (
+                <div key={cat.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: '0.6rem', fontWeight: 700, textTransform: 'uppercase', color: '#474747', width: 70, flexShrink: 0 }}>{meta.label}</span>
+                  <div style={{ flex: 1, height: 6, background: '#e0e0e0', borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${pct}%`, background: meta.color, borderRadius: 3 }} />
+                  </div>
+                  <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#1b1b1b', width: 32, textAlign: 'right' }}>{cat.score}</span>
+                </div>
+              );
+            })}
           </div>
-        ))}
-      </div>
+
+          {/* Report description snippet */}
+          <div style={{ padding: '14px 20px', fontSize: '0.72rem', color: '#474747', lineHeight: 1.55, flex: 1, overflow: 'hidden' }}>
+            <div style={{ fontWeight: 700, fontSize: '0.6rem', letterSpacing: '0.05em', textTransform: 'uppercase', color: '#767676', marginBottom: 6 }}>Overall Assessment</div>
+            <p style={{ margin: 0 }}>{scores?.overall?.description}</p>
+          </div>
+        </>
+      )}
+
+      {loading && (
+        <div className="flex flex-col flex-1 items-center justify-center gap-2" style={{ color: '#767676', fontSize: '0.75rem' }}>
+          <span style={{ fontSize: '0.85rem' }}>⟳</span>
+          Generating fresh report…
+        </div>
+      )}
     </div>
   );
 }

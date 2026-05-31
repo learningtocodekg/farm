@@ -119,6 +119,69 @@ const weeds = [
   },
 ];
 
+// ─── 7. Anomalies ─────────────────────────────────────────────────────────────
+// Each anomaly has a created_at timestamp so the report agent can sort by latest
+const anomalies = [
+  {
+    type: 'weed',
+    label: 'Pigweed cluster detected',
+    sector: '4A',
+    severity: 'high',
+    lat: 36.7905, lng: -119.4181,
+    drone_action: 'Drone #12 dispatched for targeted herbicide spray',
+    created_at: Timestamp.fromDate(new Date('2026-05-31T09:40:00Z')),
+  },
+  {
+    type: 'pest',
+    label: 'Aphid infestation spotted',
+    sector: '3B',
+    severity: 'medium',
+    lat: 36.7893, lng: -119.4145,
+    drone_action: 'Drone #33 dispatched for pesticide application',
+    created_at: Timestamp.fromDate(new Date('2026-05-31T09:35:00Z')),
+  },
+  {
+    type: 'moisture_deficit',
+    label: 'Critical moisture deficit',
+    sector: '5D',
+    severity: 'critical',
+    lat: 36.7870, lng: -119.4145,
+    drone_action: 'Sprinkler system activated in zone 5D',
+    created_at: Timestamp.fromDate(new Date('2026-05-31T09:25:00Z')),
+  },
+  {
+    type: 'nutrient_deficiency',
+    label: 'NPK deficiency — low nitrogen',
+    sector: '1A',
+    severity: 'warning',
+    lat: 36.7905, lng: -119.4181,
+    drone_action: 'Drone #21 dispatched for fertilizer spread',
+    created_at: Timestamp.fromDate(new Date('2026-05-31T08:55:00Z')),
+  },
+  {
+    type: 'weed',
+    label: 'Crabgrass patch emerging',
+    sector: '2B',
+    severity: 'low',
+    lat: 36.7903, lng: -119.4167,
+    drone_action: 'Scheduled for next sweep — low priority',
+    created_at: Timestamp.fromDate(new Date('2026-05-30T14:10:00Z')),
+  },
+];
+
+// ─── 8. Soil Health Index (computed by AI, stored alongside anomalies) ────────
+// This doc is written by the daily_poll.py script after Gemini analysis.
+// We seed an initial value here so the frontend has data before the script runs.
+const soilHealthIndex = {
+  overall_score: 78,
+  moisture_score: 62,
+  nutrient_score: 85,
+  ph_score: 91,
+  weed_pressure_score: 55,
+  summary: 'Soil health is moderate. Moisture deficits in sectors 5D and 4C require irrigation. Nutrient levels are strong across most zones. Weed pressure is elevated in sectors 4A and 2B — drone intervention underway.',
+  created_at: Timestamp.fromDate(new Date('2026-05-31T09:45:00Z')),
+};
+
 // ─── Seed ─────────────────────────────────────────────────────────────────────
 async function seed() {
   const batch = db.batch();
@@ -149,9 +212,17 @@ async function seed() {
     batch.set(db.collection('weeds').doc(weed.id), weed);
   }
 
+  // Anomalies — one doc per detected anomaly, sorted by created_at desc for reports
+  for (const anomaly of anomalies) {
+    batch.set(db.collection('anomalies').doc(), anomaly);
+  }
+
+  // Soil health index — latest entry written by daily_poll.py (and seeded here)
+  batch.set(db.collection('soilHealth').doc(), soilHealthIndex);
+
   await batch.commit();
   console.log('✅ Firestore seeded successfully');
-  console.log('   Collections written: soilSensors, agentLogs, config, problems, weeds');
+  console.log('   Collections written: soilSensors, agentLogs, config, problems, weeds, anomalies, soilHealth');
   console.log('   You can now delete the firebase-migration/ folder.');
 }
 

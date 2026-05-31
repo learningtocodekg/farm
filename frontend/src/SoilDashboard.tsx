@@ -85,7 +85,7 @@ function layerDescription(sensors: SoilSensor[], layer: HeatmapLayer): string {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function Divider({ vertical = false }: { vertical?: boolean }) {
+function _Divider({ vertical = false }: { vertical?: boolean }) {  // kept for future use
   return (
     <div style={{
       [vertical ? 'width' : 'height']: 1,

@@ -9,3 +9,4 @@ python-dotenv
 plyfile
 numpy
 opencv-python
+firebase-admin
