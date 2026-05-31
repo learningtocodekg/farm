@@ -135,8 +135,6 @@ export default function Overlay() {
   const [mouseWorld, setMouseWorld] = useState<[number, number, number] | null>(null);
   const [svgSize, setSvgSize]       = useState({ w: window.innerWidth, h: window.innerHeight });
 
-  const wsHandlerRef    = useRef<((e: KeyboardEvent) => void) | null>(null);
-  const wheelHandlerRef = useRef<((e: WheelEvent) => void) | null>(null);
   const cropPoleRef     = useRef<THREE.Mesh | null>(null);
   const guideObjectsRef = useRef<THREE.Object3D[]>([]);
   const rafRef           = useRef<number | null>(null);
@@ -288,79 +286,24 @@ export default function Overlay() {
   ) {
     const viewer = getViewer();
     if (!viewer) return;
-    if (viewer.controls) viewer.controls.enabled = false;
+
+    // Full free-roam — user positions the camera manually just like normal exploration
+    if (viewer.controls) viewer.controls.enabled = true;
 
     const leftPt  = new THREE.Vector3(...leftCropPt);
     const rightPt = new THREE.Vector3(...rightCropPt);
-
-    // Ground Y: average of the picked points (handles tilted ground)
     const groundY = (leftCropPt[1] + rightCropPt[1] + flightStart[1]) / 3;
-
-    // The direction FROM right TO left (perpendicular to flight line, flat in XZ)
     const perpXZ = new THREE.Vector3(leftPt.x - rightPt.x, 0, leftPt.z - rightPt.z).normalize();
-
-    // Flight direction (along aisle) = perpXZ × worldUp — guaranteed orthogonal
     const trueFlightXZ = new THREE.Vector3().crossVectors(perpXZ, new THREE.Vector3(0, 1, 0)).normalize();
-
-    const targetPt = row === 'left' ? leftPt : rightPt;
-
-    // For left row: camera sits outside the left row (on the opposite side from right row), looks inward
-    // For right row: mirror the left camera position across the flight line center to the other side
-    const viewer_ = getViewer();
-    let camPos: THREE.Vector3;
-    if (row === 'right' && viewer_) {
-      // Reflect current camera XZ across the flight line midpoint onto the right side
-      const midPt = leftPt.clone().add(rightPt).multiplyScalar(0.5);
-      const cur = viewer_.camera.position;
-      // Component of current cam position along perpXZ (left direction)
-      const curPerpDist = (cur.x - midPt.x) * perpXZ.x + (cur.z - midPt.z) * perpXZ.z;
-      // Mirror: subtract twice the perp component to flip to the other side
-      camPos = new THREE.Vector3(
-        cur.x - 2 * curPerpDist * perpXZ.x,
-        cur.y,
-        cur.z - 2 * curPerpDist * perpXZ.z,
-      );
-    } else {
-      // Left row: sit 3 units to the right of the left row (outside), looking left
-      const outsideDir = perpXZ.clone().negate(); // points right (away from left row)
-      const startY = groundY - 2;
-      camPos = targetPt.clone().addScaledVector(outsideDir, 3);
-      camPos.y = startY;
-    }
-
-    // lookDir: horizontal vector from camera toward the target crop row
-    const lookDir = targetPt.clone().sub(camPos).setY(0).normalize();
-
-    // Build quaternion directly from axes — avoids lookAt ambiguity with flipped up vector.
-    // In this scene cameraUp=[0,-1,0], so "screen up" is world -Y.
-    // Camera axes: forward=lookDir, up=(0,-1,0), right = up × forward (left-hand with flipped Y)
-    const worldUp = new THREE.Vector3(0, -1, 0);
-    const right = new THREE.Vector3().crossVectors(worldUp, lookDir).normalize();
-    const camUp = new THREE.Vector3().crossVectors(lookDir, right).normalize();
-    const rotMat = new THREE.Matrix4().makeBasis(right, camUp, lookDir.clone().negate());
-    const targetQuat = new THREE.Quaternion().setFromRotationMatrix(rotMat);
-
-    const applyCameraPos = () => {
-      if (viewer.controls) viewer.controls.enabled = false;
-      viewer.camera.position.copy(camPos);
-      viewer.camera.quaternion.copy(targetQuat);
-      viewer.camera.updateProjectionMatrix();
-      viewer.camera.updateMatrixWorld();
-    };
-
-    // Apply twice: once now, once next frame — viewer render loop can overwrite the first
-    applyCameraPos();
-    requestAnimationFrame(applyCameraPos);
 
     setAngleRow(row);
     setLiveHeight(viewer.camera.position.y);
 
-    // Guide lines — drawn at groundY so they sit on the actual terrain
+    // Draw guide lines so user can see where the crop rows are
     guideObjectsRef.current.forEach(o => viewer.threeScene?.remove(o));
     guideObjectsRef.current = [];
     if (viewer.threeScene) {
       const FAR = 20;
-
       const addLine = (a: THREE.Vector3, b: THREE.Vector3, color: number) => {
         const geo = new THREE.BufferGeometry().setFromPoints([a, b]);
         const mat = new THREE.LineBasicMaterial({ color, depthTest: false, linewidth: 2 });
@@ -369,17 +312,13 @@ export default function Overlay() {
         viewer.threeScene.add(line);
         guideObjectsRef.current.push(line);
       };
-
-      const leftColor  = 0x00ffcc;  // teal — always visible
-      const rightColor = 0xc084fc;  // purple — always visible
-
-      // Lines along the flight direction at each crop row
+      const leftColor  = 0x00ffcc;
+      const rightColor = 0xc084fc;
       addLine(
         new THREE.Vector3(leftPt.x, groundY, leftPt.z).addScaledVector(trueFlightXZ,  FAR),
         new THREE.Vector3(leftPt.x, groundY, leftPt.z).addScaledVector(trueFlightXZ, -FAR),
         leftColor,
       );
-      // Vertical pole at left crop row
       addLine(
         new THREE.Vector3(leftPt.x, groundY - 3, leftPt.z),
         new THREE.Vector3(leftPt.x, groundY + 3, leftPt.z),
@@ -397,68 +336,7 @@ export default function Overlay() {
       );
     }
 
-    // W/S: move up/down (Y axis)
-    // A/D: move along the flight line
-    // Arrow keys: rotate (pitch/yaw freely)
-    // Y/U: zoom in/out
-    const onKey = (e: KeyboardEvent) => {
-      const key = e.key;
-      const keyLower = key.toLowerCase();
-      const isMove = ['w', 's', 'a', 'd'].includes(keyLower);
-      const isRotate = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key);
-      const isZoom = ['y', 'u'].includes(keyLower);
-      if (!isMove && !isRotate && !isZoom) return;
-      e.preventDefault();
-      const v = getViewer();
-      if (!v) return;
-      const cam = v.camera as THREE.PerspectiveCamera;
-
-      if (isMove) {
-        if (keyLower === 'w') {
-          cam.position.y -= 0.1;
-        } else if (keyLower === 's') {
-          cam.position.y += 0.1;
-        } else {
-          const dir = keyLower === 'a' ? 1 : -1;
-          cam.position.x += trueFlightXZ.x * dir * 0.1;
-          cam.position.z += trueFlightXZ.z * dir * 0.1;
-        }
-        // After moving, snap back to looking at the row using the same matrix approach
-        const ld = targetPt.clone().sub(cam.position).setY(0).normalize();
-        const wu = new THREE.Vector3(0, -1, 0);
-        const r = new THREE.Vector3().crossVectors(wu, ld).normalize();
-        const u = new THREE.Vector3().crossVectors(ld, r).normalize();
-        cam.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(r, u, ld.clone().negate()));
-      } else if (isRotate) {
-        // Free rotation using Euler — pitch on local X, yaw on world Y
-        const ROTATE_SPEED = 0.03;
-        const euler = new THREE.Euler().setFromQuaternion(cam.quaternion, 'YXZ');
-        if (key === 'ArrowLeft')  euler.y += ROTATE_SPEED;
-        if (key === 'ArrowRight') euler.y -= ROTATE_SPEED;
-        if (key === 'ArrowUp')    euler.x -= ROTATE_SPEED;
-        if (key === 'ArrowDown')  euler.x += ROTATE_SPEED;
-        cam.quaternion.setFromEuler(euler);
-      } else {
-        cam.fov = Math.max(5, Math.min(120, cam.fov + (keyLower === 'u' ? 2 : -2)));
-      }
-      cam.updateProjectionMatrix();
-      cam.updateMatrixWorld();
-    };
-
-    const onWheel = (e: WheelEvent) => {
-      const v = getViewer();
-      if (!v) return;
-      const cam = v.camera as THREE.PerspectiveCamera;
-      cam.fov = Math.max(5, Math.min(120, cam.fov + e.deltaY * 0.05));
-      cam.updateProjectionMatrix();
-    };
-
-    window.addEventListener('keydown', onKey);
-    window.addEventListener('wheel', onWheel, { passive: true });
-    wsHandlerRef.current = onKey;
-    wheelHandlerRef.current = onWheel;
-
-    // Poll camera Y position (negative Y = higher in this scene)
+    // Poll camera position for the height display
     const poll = () => {
       const v = getViewer();
       if (v) setLiveHeight(v.camera.position.y);
@@ -468,14 +346,6 @@ export default function Overlay() {
   }
 
   function stopAngleMode() {
-    if (wsHandlerRef.current) {
-      window.removeEventListener('keydown', wsHandlerRef.current);
-      wsHandlerRef.current = null;
-    }
-    if (wheelHandlerRef.current) {
-      window.removeEventListener('wheel', wheelHandlerRef.current);
-      wheelHandlerRef.current = null;
-    }
     if (rafRef.current) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
@@ -517,9 +387,6 @@ export default function Overlay() {
       console.log('[confirmAngle] leftCrop:', c.leftCrop);
       console.log('[confirmAngle] rightCrop:', c.rightCrop);
       if (c.flightStart && c.leftCrop && c.rightCrop) {
-        // Remove old key/wheel listeners and guide objects but keep controls disabled
-        if (wsHandlerRef.current) { window.removeEventListener('keydown', wsHandlerRef.current); wsHandlerRef.current = null; }
-        if (wheelHandlerRef.current) { window.removeEventListener('wheel', wheelHandlerRef.current); wheelHandlerRef.current = null; }
         if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
         const v = getViewer();
         guideObjectsRef.current.forEach(o => { v?.threeScene?.remove(o); });
@@ -742,10 +609,6 @@ export default function Overlay() {
         </div>
       )}
 
-      {/* Click blocker (step 2) */}
-      {calibStep === 'angle' && (
-        <div style={{ position: 'fixed', inset: 0, pointerEvents: 'auto', zIndex: 9 }} />
-      )}
 
       {/* ── Step 2 panel ── */}
       {calibStep === 'angle' && (

@@ -34,7 +34,9 @@ async function capturePass(page, config, passSuffix, cameraConfig) {
   const dx = end[0] - start[0];
   const dz = end[2] - start[2];
   const totalDist = Math.sqrt(dx * dx + dz * dz);
-  const numFrames = Math.max(1, Math.floor(totalDist / frameWidth));
+  const MAX_STEP = 3.0; // cap step size so we always get enough frames
+  const effectiveWidth = Math.min(frameWidth, MAX_STEP);
+  const numFrames = Math.max(1, Math.floor(totalDist / effectiveWidth));
   const step = totalDist / numFrames;
 
   // Flight line direction unit vector in XZ
