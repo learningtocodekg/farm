@@ -6,6 +6,7 @@ import {
   Beaker, CloudRain, ShieldAlert,
   Compass, Gauge, Scan, Sprout, FileText
 } from 'lucide-react';
+import nitrogenHeatmap from './assets/images/nitrogen-heatmapp.jpeg';
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
@@ -142,6 +143,15 @@ function snapshotsFromSaved(arr: any[]): CameraSnapshot[] {
 // ── component ─────────────────────────────────────────────────────────────────
 
 export default function Overlay() {
+  // Page view toggle
+  const [view, setView] = useState<'dashboard' | '3d'>('dashboard');
+
+  // Show/hide the splat canvas based on view
+  useEffect(() => {
+    const splat = document.getElementById('splat-root');
+    if (splat) splat.style.display = view === '3d' ? 'block' : 'none';
+  }, [view]);
+
   // Splat / viewer status
   const [status, setStatus]         = useState<SplatStatus>('loading');
   const [cameraMode, setCameraMode] = useState<CameraMode>('perspective');
@@ -152,6 +162,12 @@ export default function Overlay() {
   const [showWeedModal, setShowWeedModal]           = useState(false);
   const [selectedWeed, setSelectedWeed]             = useState<string | null>(null);
   const [actionWeed, setActionWeed]                 = useState<string | null>(null);
+
+  // Weed problem points plotted on the heatmap (matches Weed Identification data)
+  const weedPoints = [
+    { id: 'pigweed',   name: 'Pigweed',   sector: '4A', priority: 'High',   color: 'rgb(244, 63, 94)',  left: '15%', top: '15%' },
+    { id: 'crabgrass', name: 'Crabgrass', sector: '2B', priority: 'Medium', color: 'rgb(251, 191, 36)', left: '20%', top: '60%' },
+  ];
 
   // Calibration state
   const [mode, setMode]             = useState<CalibMode>('idle');
@@ -510,16 +526,16 @@ export default function Overlay() {
 
   return (
     <>
-      {/* Calibration: SVG overlay */}
-      {isTopDown && (
+      {/* Calibration: SVG overlay (3D view only) */}
+      {view === '3d' && isTopDown && (
         <svg style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 10 }}
           width={svgSize.w} height={svgSize.h}>
           {svgOverlay}
         </svg>
       )}
 
-      {/* Calibration: click blocker for top-down picking */}
-      {isTopDown && (
+      {/* Calibration: click blocker for top-down picking (3D view only) */}
+      {view === '3d' && isTopDown && (
         <div
           onClick={handleTopDownClick}
           onMouseMove={handleTopDownMouseMove}
@@ -527,25 +543,67 @@ export default function Overlay() {
         />
       )}
 
+      {/* Dashboard-only: black background + heatmap layers */}
+      {view === 'dashboard' && (
+        <>
+          <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 0, background: '#000' }} />
+          <div className="absolute inset-0 pointer-events-none" style={{
+            zIndex: 0,
+            backgroundImage: `url(${nitrogenHeatmap})`,
+            backgroundSize: 'contain',
+            backgroundPosition: 'center',
+            backgroundRepeat: 'no-repeat',
+            filter: 'contrast(1.25) brightness(0.8)',
+          }} />
+          <div className="absolute inset-0 pointer-events-none" style={{
+            zIndex: 0,
+            background: `
+              radial-gradient(circle at 42% 38%, rgba(244,63,94,0.55) 0%, rgba(244,63,94,0.25) 8%, rgba(251,146,60,0.15) 16%, transparent 26%),
+              radial-gradient(circle at 63% 64%, rgba(251,191,36,0.5) 0%, rgba(251,191,36,0.22) 8%, rgba(234,179,8,0.12) 16%, transparent 26%)
+            `,
+            mixBlendMode: 'screen',
+          }} />
+        </>
+      )}
+
       {/* Main HUD + Dashboard */}
       <div className="absolute inset-0 pointer-events-none p-6 flex flex-col justify-between overflow-hidden">
 
         {/* Top HUD */}
         <div className="flex justify-between items-start pointer-events-auto gap-6">
-          <div className="flex items-center gap-3 px-5 py-3 rounded-2xl bg-black/50 backdrop-blur-xl border border-white/15 shadow-xl shadow-black/30 hover:border-white/25 transition-all duration-200 cursor-default">
-            <div className={`w-2.5 h-2.5 rounded-full flex items-center justify-center text-xs font-bold ${status === 'loaded' ? 'bg-emerald-400 text-black' : status === 'loading' ? 'bg-amber-400 text-black animate-pulse' : 'bg-rose-400 text-white animate-pulse'}`}>{statusIcon}</div>
-            <span className={`text-xs font-semibold tracking-wider ${statusColor}`}>{statusLabel}</span>
-            {status === 'loaded' && (
-              <>
-                <div className="w-px h-5 bg-white/20 mx-2" />
-                <span className="text-white/65 text-xs font-mono uppercase tracking-widest font-medium">
-                  {isTopDown ? 'CALIBRATION' : cameraMode}
-                </span>
-              </>
-            )}
+          {/* Left: status pill + view toggle */}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 px-5 py-3 rounded-2xl bg-black/50 backdrop-blur-xl border border-white/15 shadow-xl shadow-black/30 hover:border-white/25 transition-all duration-200 cursor-default">
+              <div className={`w-2.5 h-2.5 rounded-full flex items-center justify-center text-xs font-bold ${status === 'loaded' ? 'bg-emerald-400 text-black' : status === 'loading' ? 'bg-amber-400 text-black animate-pulse' : 'bg-rose-400 text-white animate-pulse'}`}>{statusIcon}</div>
+              <span className={`text-xs font-semibold tracking-wider ${statusColor}`}>{statusLabel}</span>
+              {view === '3d' && status === 'loaded' && (
+                <>
+                  <div className="w-px h-5 bg-white/20 mx-2" />
+                  <span className="text-white/65 text-xs font-mono uppercase tracking-widest font-medium">
+                    {isTopDown ? 'CALIBRATION' : cameraMode}
+                  </span>
+                </>
+              )}
+            </div>
+
+            {/* Dashboard / 3D toggle */}
+            <div className="flex items-center rounded-xl overflow-hidden border border-white/15 shadow-lg bg-black/50 backdrop-blur-xl">
+              <button
+                onClick={() => setView('dashboard')}
+                className={`px-4 py-3 text-xs font-semibold uppercase tracking-widest transition-all duration-200 cursor-pointer focus:outline-none ${view === 'dashboard' ? 'bg-emerald-500/30 text-emerald-300 border-r border-emerald-500/30' : 'text-white/50 hover:text-white/80 hover:bg-white/10 border-r border-white/10'}`}
+              >
+                Dashboard
+              </button>
+              <button
+                onClick={() => setView('3d')}
+                className={`px-4 py-3 text-xs font-semibold uppercase tracking-widest transition-all duration-200 cursor-pointer focus:outline-none ${view === '3d' ? 'bg-cyan-500/30 text-cyan-300' : 'text-white/50 hover:text-white/80 hover:bg-white/10'}`}
+              >
+                3D View
+              </button>
+            </div>
           </div>
 
-          {!isTopDown && (
+          {view === '3d' && !isTopDown && (
             <div className="flex items-center gap-3">
               <Link
                 to="/report"
@@ -562,10 +620,20 @@ export default function Overlay() {
               </button>
             </div>
           )}
+
+          {view === 'dashboard' && (
+            <Link
+              to="/report"
+              className="flex items-center gap-2 px-5 py-3 rounded-xl bg-emerald-500/25 border border-emerald-400/40 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/35 hover:border-emerald-300/60 hover:shadow-lg hover:shadow-emerald-500/20 hover:scale-105 transition-all duration-200 shadow-md select-none uppercase tracking-widest cursor-pointer focus:ring-2 focus:ring-emerald-400 focus:outline-none"
+            >
+              <FileText className="w-4 h-4" />
+              Generate Report
+            </Link>
+          )}
         </div>
 
-        {/* Main Dashboard Layout — hidden during calibration top-down */}
-        {!isTopDown && (
+        {/* Main Dashboard Layout — only on dashboard view, hidden during calibration top-down */}
+        {view === 'dashboard' && !isTopDown && (
           <div className="flex-1 flex justify-between items-start mt-6 w-full pointer-events-none px-6">
 
             {/* Left Panel: Soil Health & Weed ID */}
@@ -627,6 +695,35 @@ export default function Overlay() {
                 </div>
               </DashboardCard>
 
+            </div>
+
+            {/* Center: Heatmap Problem Markers */}
+            <div className="flex-1 relative h-full pointer-events-none">
+              {weedPoints.map((point) => (
+                <button
+                  key={point.id}
+                  onClick={() => { setSelectedWeed(point.id); setShowWeedModal(true); }}
+                  className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-auto group focus:outline-none"
+                  style={{ left: point.left, top: point.top }}
+                  title={`${point.name} • Sector ${point.sector}`}
+                >
+                  <span
+                    className="absolute inset-0 m-auto w-10 h-10 rounded-full animate-ping opacity-60"
+                    style={{ backgroundColor: point.color }}
+                  />
+                  <span
+                    className="relative block w-5 h-5 rounded-full border-2 border-white shadow-lg transition-transform duration-200 group-hover:scale-125"
+                    style={{
+                      backgroundColor: point.color,
+                      boxShadow: `0 0 12px ${point.color}, 0 0 24px ${point.color}`,
+                    }}
+                  />
+                  <span className="absolute left-1/2 -translate-x-1/2 top-7 whitespace-nowrap px-2.5 py-1 rounded-md bg-black/70 backdrop-blur-md border border-white/20 text-xs font-bold text-white/95 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                    {point.name}
+                    <span className="ml-1.5 text-white/60 font-medium">Sector {point.sector}</span>
+                  </span>
+                </button>
+              ))}
             </div>
 
             {/* Right Panel: Environmental Sensors */}
@@ -734,8 +831,8 @@ export default function Overlay() {
         </div>
       )}
 
-      {/* Calibration panel — fixed top-right, below the top HUD buttons */}
-      {status === 'loaded' && !isTopDown && !IS_CAPTURE && (
+      {/* Calibration panel — disabled */}
+      {false && status === 'loaded' && !isTopDown && !IS_CAPTURE && (
         <div data-ui="true"
           style={{ position: 'fixed', top: 96, right: 16, zIndex: 30, minWidth: 230 }}
           className="flex flex-col gap-2">
