@@ -11,7 +11,6 @@ function DashboardPage() {
   return (
     <>
       <Overlay />
-      <WeedMarkers />
     </>
   );
 }

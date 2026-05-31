@@ -641,7 +641,7 @@ export default function Overlay() {
                       </span>
                       Live
                     </div>
-                    <span className="text-white text-[10px] font-bold px-1.5 py-0.5 leading-none" style={{ background: '#ba1a1a' }}>4 PROBLEMS</span>
+                    <span className="text-white text-[10px] font-bold px-1.5 py-0.5 leading-none" style={{ background: '#ba1a1a' }}>2 PROBLEMS</span>
                   </div>
                 </div>
                 {/* Tabs */}
@@ -652,7 +652,7 @@ export default function Overlay() {
                   <div style={{ width: 1, background: '#1b1b1b' }} />
                   <button onClick={() => setLeftTab('problems')} className="flex-1 flex items-center justify-center gap-2 py-3 text-xs font-bold uppercase tracking-widest cursor-pointer focus:outline-none" style={{ background: leftTab === 'problems' ? BG : '#ebebeb', color: leftTab === 'problems' ? '#ba1a1a' : '#767676', borderBottom: leftTab === 'problems' ? '2px solid #ba1a1a' : '2px solid transparent' }}>
                     <ShieldAlert className="w-3.5 h-3.5" /> Problems
-                    <span className="text-white text-[10px] font-bold px-1.5 py-0.5" style={{ background: '#ba1a1a' }}>4</span>
+                    <span className="text-white text-[10px] font-bold px-1.5 py-0.5" style={{ background: '#ba1a1a' }}>2</span>
                   </button>
                 </div>
                 {leftTab === 'agent-log' && (

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Maximize2, Sun, Cloud, CloudRain, Calendar, Activity, LayoutDashboard } from 'lucide-react';
+import { Sun, Cloud, CloudRain, Calendar, Activity, LayoutDashboard } from 'lucide-react';
 import SoilSensorOverlay from './components/SoilSensorOverlay';
 import { HeatmapLayer } from './components/SoilHeatmap';
 import soilData from './data/soilSensors.json';
@@ -324,13 +324,6 @@ export default function SoilDashboard() {
             }}>
               {LAYER_META[layer].label.toUpperCase()}
             </span>
-            <button style={{
-              background: 'none', border: 'none', cursor: 'pointer',
-              color: C.onSurfaceVariant, display: 'flex', alignItems: 'center',
-              padding: 4,
-            }}>
-              <Maximize2 size={16} />
-            </button>
           </div>
 
           {/* Heatmap container — fills remaining height */}
