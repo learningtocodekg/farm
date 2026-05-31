@@ -315,16 +315,19 @@ export default function Overlay() {
     const lookDir = row === 'left' ? perpXZ.clone() : perpXZ.clone().negate();
     const lookTarget = camPos.clone().addScaledVector(lookDir, 10);
 
-    if (viewer.controls) {
-      viewer.controls.enabled = false;
-      // Reset OrbitControls internal target so it stops fighting our camera position
-      if (viewer.controls.target) viewer.controls.target.copy(lookTarget);
-    }
-    viewer.camera.position.copy(camPos);
-    viewer.camera.up.set(0, -1, 0);
-    viewer.camera.lookAt(lookTarget);
-    viewer.camera.updateProjectionMatrix();
-    viewer.camera.updateMatrixWorld();
+    const applyCameraPos = () => {
+      if (viewer.controls) viewer.controls.enabled = false;
+      viewer.camera.position.copy(camPos);
+      viewer.camera.up.set(0, -1, 0);
+      viewer.camera.lookAt(lookTarget);
+      viewer.camera.updateProjectionMatrix();
+      viewer.camera.updateMatrixWorld();
+      console.log('[AngleMode] row:', row, '| quat after apply:', viewer.camera.quaternion.w.toFixed(4), viewer.camera.quaternion.x.toFixed(4), viewer.camera.quaternion.y.toFixed(4), viewer.camera.quaternion.z.toFixed(4));
+    };
+
+    // Apply twice: once now, once next frame — viewer render loop can overwrite the first
+    applyCameraPos();
+    requestAnimationFrame(applyCameraPos);
 
     setAngleRow(row);
     setLiveHeight(viewer.camera.position.y);
@@ -371,39 +374,43 @@ export default function Overlay() {
       );
     }
 
-    // Mutable state shared between key handler and render loop
-    const state = {
-      pos: camPos.clone(),
-      fov: (viewer.camera as THREE.PerspectiveCamera).fov,
-    };
-
-    const applyCamera = () => {
-      const v = getViewer();
-      if (!v) return;
-      const cam = v.camera as THREE.PerspectiveCamera;
-      if (v.controls) v.controls.enabled = false;
-      cam.position.copy(state.pos);
-      cam.fov = state.fov;
-      cam.up.set(0, -1, 0);
-      cam.lookAt(state.pos.clone().addScaledVector(lookDir, 10));
-      cam.updateProjectionMatrix();
-      cam.updateMatrixWorld();
-    };
-
+    // W/S: move up/down (change Y — more negative = higher in this scene)
+    // A/D: move along the flight line direction (forward/back along the aisle)
+    // Y/U: zoom in/out
+    // After every move, re-apply lookAt so camera stays locked on the row
     const onKey = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
       if (!['w', 's', 'a', 'd', 'y', 'u'].includes(key)) return;
       e.preventDefault();
-      if (key === 'w') state.pos.y -= 0.1;
-      else if (key === 's') state.pos.y += 0.1;
-      else if (key === 'a') { state.pos.x += trueFlightXZ.x * 0.1; state.pos.z += trueFlightXZ.z * 0.1; }
-      else if (key === 'd') { state.pos.x -= trueFlightXZ.x * 0.1; state.pos.z -= trueFlightXZ.z * 0.1; }
-      else if (key === 'y') state.fov = Math.max(5,  state.fov - 2);
-      else if (key === 'u') state.fov = Math.min(120, state.fov + 2);
+      const v = getViewer();
+      if (!v) return;
+      const cam = v.camera as THREE.PerspectiveCamera;
+      if (key === 'w') {
+        cam.position.y -= 0.1;  // more negative = higher
+      } else if (key === 's') {
+        cam.position.y += 0.1;  // more positive = lower
+      } else if (key === 'a' || key === 'd') {
+        // Move along the aisle (flight line direction, XZ only)
+        const dir = key === 'a' ? 1 : -1;
+        cam.position.x += trueFlightXZ.x * dir * 0.1;
+        cam.position.z += trueFlightXZ.z * dir * 0.1;
+      } else {
+        cam.fov = Math.max(5, Math.min(120, cam.fov + (key === 'u' ? 2 : -2)));
+        cam.updateProjectionMatrix();
+      }
+      cam.up.set(0, -1, 0);
+      // Re-derive look target from current cam position along the fixed lookDir
+      cam.lookAt(cam.position.clone().addScaledVector(lookDir, 10));
+      cam.updateProjectionMatrix();
+      cam.updateMatrixWorld();
     };
 
     const onWheel = (e: WheelEvent) => {
-      state.fov = Math.max(5, Math.min(120, state.fov + e.deltaY * 0.05));
+      const v = getViewer();
+      if (!v) return;
+      const cam = v.camera as THREE.PerspectiveCamera;
+      cam.fov = Math.max(5, Math.min(120, cam.fov + e.deltaY * 0.05));
+      cam.updateProjectionMatrix();
     };
 
     window.addEventListener('keydown', onKey);
@@ -411,10 +418,10 @@ export default function Overlay() {
     wsHandlerRef.current = onKey;
     wheelHandlerRef.current = onWheel;
 
-    // Render loop: re-apply every frame so the viewer can't overwrite our camera
+    // Poll camera Y position (negative Y = higher in this scene)
     const poll = () => {
-      applyCamera();
-      setLiveHeight(state.pos.y);
+      const v = getViewer();
+      if (v) setLiveHeight(v.camera.position.y);
       rafRef.current = requestAnimationFrame(poll);
     };
     rafRef.current = requestAnimationFrame(poll);
