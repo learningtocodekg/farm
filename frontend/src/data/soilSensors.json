@@ -1,0 +1,37 @@
+{
+  "metadata": {
+    "field_id": "VNY-0031",
+    "last_updated": "2026-05-31T09:41:00Z",
+    "crs": "WGS84",
+    "sensor_count": 20,
+    "units": {
+      "moisture": "%",
+      "nitrogen": "ppm",
+      "phosphorus": "ppm",
+      "potassium": "ppm",
+      "ph": "pH"
+    }
+  },
+  "sensors": [
+    { "id": "SOIL-001", "lat": 36.7905, "lng": -119.4181, "x": 0.17, "y": 0.11, "moisture": 47, "nitrogen": 12, "phosphorus": 9,  "potassium": 128, "ph": 6.3 },
+    { "id": "SOIL-002", "lat": 36.7903, "lng": -119.4167, "x": 0.34, "y": 0.09, "moisture": 52, "nitrogen": 15, "phosphorus": 12, "potassium": 138, "ph": 6.4 },
+    { "id": "SOIL-003", "lat": 36.7904, "lng": -119.4155, "x": 0.50, "y": 0.10, "moisture": 58, "nitrogen": 38, "phosphorus": 24, "potassium": 168, "ph": 6.5 },
+    { "id": "SOIL-004", "lat": 36.7905, "lng": -119.4144, "x": 0.67, "y": 0.11, "moisture": 61, "nitrogen": 47, "phosphorus": 31, "potassium": 185, "ph": 6.6 },
+    { "id": "SOIL-005", "lat": 36.7903, "lng": -119.4131, "x": 0.81, "y": 0.09, "moisture": 59, "nitrogen": 51, "phosphorus": 33, "potassium": 192, "ph": 6.7 },
+    { "id": "SOIL-006", "lat": 36.7894, "lng": -119.4181, "x": 0.18, "y": 0.38, "moisture": 51, "nitrogen": 16, "phosphorus": 11, "potassium": 135, "ph": 6.4 },
+    { "id": "SOIL-007", "lat": 36.7892, "lng": -119.4168, "x": 0.32, "y": 0.36, "moisture": 56, "nitrogen": 22, "phosphorus": 17, "potassium": 152, "ph": 6.5 },
+    { "id": "SOIL-008", "lat": 36.7894, "lng": -119.4157, "x": 0.51, "y": 0.37, "moisture": 63, "nitrogen": 42, "phosphorus": 27, "potassium": 175, "ph": 6.5 },
+    { "id": "SOIL-009", "lat": 36.7893, "lng": -119.4145, "x": 0.65, "y": 0.38, "moisture": 58, "nitrogen": 50, "phosphorus": 34, "potassium": 188, "ph": 6.7 },
+    { "id": "SOIL-010", "lat": 36.7892, "lng": -119.4132, "x": 0.83, "y": 0.36, "moisture": 53, "nitrogen": 48, "phosphorus": 32, "potassium": 183, "ph": 6.8 },
+    { "id": "SOIL-011", "lat": 36.7883, "lng": -119.4180, "x": 0.17, "y": 0.64, "moisture": 54, "nitrogen": 31, "phosphorus": 21, "potassium": 162, "ph": 6.4 },
+    { "id": "SOIL-012", "lat": 36.7882, "lng": -119.4167, "x": 0.34, "y": 0.62, "moisture": 59, "nitrogen": 39, "phosphorus": 25, "potassium": 172, "ph": 6.5 },
+    { "id": "SOIL-013", "lat": 36.7883, "lng": -119.4155, "x": 0.49, "y": 0.63, "moisture": 63, "nitrogen": 48, "phosphorus": 31, "potassium": 185, "ph": 6.6 },
+    { "id": "SOIL-014", "lat": 36.7881, "lng": -119.4144, "x": 0.66, "y": 0.64, "moisture": 41, "nitrogen": 52, "phosphorus": 36, "potassium": 195, "ph": 7.1 },
+    { "id": "SOIL-015", "lat": 36.7882, "lng": -119.4133, "x": 0.82, "y": 0.62, "moisture": 28, "nitrogen": 45, "phosphorus": 30, "potassium": 178, "ph": 7.3 },
+    { "id": "SOIL-016", "lat": 36.7872, "lng": -119.4181, "x": 0.19, "y": 0.86, "moisture": 55, "nitrogen": 37, "phosphorus": 24, "potassium": 170, "ph": 6.5 },
+    { "id": "SOIL-017", "lat": 36.7871, "lng": -119.4169, "x": 0.33, "y": 0.88, "moisture": 57, "nitrogen": 44, "phosphorus": 29, "potassium": 180, "ph": 6.6 },
+    { "id": "SOIL-018", "lat": 36.7872, "lng": -119.4156, "x": 0.50, "y": 0.87, "moisture": 44, "nitrogen": 50, "phosphorus": 33, "potassium": 190, "ph": 6.8 },
+    { "id": "SOIL-019", "lat": 36.7870, "lng": -119.4145, "x": 0.67, "y": 0.86, "moisture": 22, "nitrogen": 53, "phosphorus": 35, "potassium": 200, "ph": 7.2 },
+    { "id": "SOIL-020", "lat": 36.7871, "lng": -119.4132, "x": 0.82, "y": 0.88, "moisture": 17, "nitrogen": 49, "phosphorus": 31, "potassium": 185, "ph": 7.5 }
+  ]
+}
