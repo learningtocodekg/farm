@@ -1,99 +1,85 @@
-FARM HEALTH REPORT
+
+================================================================================
+                        FARM HEALTH REPORT
+================================================================================
+
 Generated: May 31, 2026
 Analyst: AgriSense AI
 
-======================================================================
+================================================================================
 OVERALL FARM HEALTH SCORE: 82/100
-Description: Farm is in good health with strong temperature stability. Minor nutrient optimization recommended for maximum yield potential.
-======================================================================
+================================================================================
 
-CATEGORY BREAKDOWN:
+Farm is in good health with strong temperature stability. Minor nutrient optimization recommended for maximum yield potential.
 
-  • Moisture Index: 82/100 - Good
-  • Nutrient Balance: 78/100 - Good
-  • Temperature Stability: 88/100 - Excellent
-  • Weed Control: 80/100 - Good
 
-======================================================================
+CATEGORY SCORES:
+--------------------------------------------------------------------------------
+
+Moisture Index: 82/100 (Good)
+
+Nutrient Balance: 78/100 (Good)
+
+Temperature Stability: 88/100 (Excellent)
+
+Weed Control: 80/100 (Good)
+
+================================================================================
 DETAILED ANALYSIS
-======================================================================
+================================================================================
 
-# Farm Health Report: Comprehensive Analysis
-
-**Date:** May 31, 2026
-**Farm ID:** QuackFarm-001
-
-## Executive Summary
-
-Your farm demonstrates **GOOD** overall health status with a score of 82/100. While temperature stability is excellent and moisture levels are good, there are actionable opportunities for improvement in nutrient management and weed control to optimize crop yield and long-term sustainability.
-
-## Category Analysis
-
-### 1. Moisture Index (Score: 82/100 - Good)
-
-**Status:** Soil moisture levels are within optimal ranges across most zones, with good water distribution from recent irrigation.
-
-**Findings:**
+Farm Health Report: Comprehensive Analysis
+Date: May 31, 2026
+Farm ID: QuackFarm-001
+ Executive Summary
+Your farm demonstrates GOOD overall health status with a score of 82/100. While temperature stability is excellent and moisture levels are good, there are actionable opportunities for improvement in nutrient management and weed control to optimize crop yield and long-term sustainability.
+ Category Analysis
+ 1. Moisture Index (Score: 82/100 - Good)
+Status: Soil moisture levels are within optimal ranges across most zones, with good water distribution from recent irrigation.
+Findings:
 - Average soil moisture: 65% of field capacity
 - Even distribution across monitored zones
 - No signs of waterlogging or drought stress
-
-**Recommendations:**
+Recommendations:
 - Maintain current irrigation schedule
 - Continue weekly moisture monitoring
 - Adjust if rainfall exceeds 1 inch per week
-
-### 2. Nutrient Balance (Score: 78/100 - Good)
-
-**Status:** Nutrient levels are generally adequate, though nitrogen shows slight opportunity for optimization.
-
-**Findings:**
+ 2. Nutrient Balance (Score: 78/100 - Good)
+Status: Nutrient levels are generally adequate, though nitrogen shows slight opportunity for optimization.
+Findings:
 - Nitrogen (N): 18 ppm (optimal range 20-30 ppm)
 - Phosphorus (P): 25 ppm (optimal)
 - Potassium (K): 185 ppm (optimal)
 - pH: 6.5 (excellent)
-
-**Recommendations:**
+Recommendations:
 - Apply balanced fertilizer with emphasis on nitrogen
 - Consider side-dress application at mid-season
 - Conduct tissue analysis in 3 weeks
-
-### 3. Temperature Stability (Score: 88/100 - Excellent)
-
-**Status:** Temperature conditions are ideal for current crop development with minimal stress from heat or cold.
-
-**Findings:**
+ 3. Temperature Stability (Score: 88/100 - Excellent)
+Status: Temperature conditions are ideal for current crop development with minimal stress from heat or cold.
+Findings:
 - Average temp: 22°C (optimal)
 - Diurnal range: 8-10°C (stable)
 - No extreme temperature events detected
 - Humidity well-managed
-
-**Recommendations:**
+Recommendations:
 - Continue monitoring during forecast heat events
 - Current microclimatic conditions are ideal - maintain
-
-### 4. Weed Control (Score: 80/100 - Good)
-
-**Status:** Weed pressure is moderate and well-controlled with current practices.
-
-**Findings:**
+ 4. Weed Control (Score: 80/100 - Good)
+Status: Weed pressure is moderate and well-controlled with current practices.
+Findings:
 - Weed density: Low to moderate in field margins
 - Identified species: Common lamb's quarters, pigweed (managed)
 - No significant yield threat at current levels
-
-**Recommendations:**
+Recommendations:
 - Continue current cultivation schedule
 - Scout field margins weekly
 - Prepare pre-emergent application for next season
 - Consider cover crop between rows
-
-## Priority Actions
-
-1. **This Week:** Apply balanced fertilizer with nitrogen emphasis
-2. **Next 2 Weeks:** Monitor crop development and tissue color
-3. **Mid-Season:** Conduct tissue analysis and adjust nutrients if needed
-4. **Ongoing:** Weekly moisture and weed scouting
-
-## Conclusion
-
+ Priority Actions
+1. This Week: Apply balanced fertilizer with nitrogen emphasis
+2. Next 2 Weeks: Monitor crop development and tissue color
+3. Mid-Season: Conduct tissue analysis and adjust nutrients if needed
+4. Ongoing: Weekly moisture and weed scouting
+ Conclusion
 Your farm is in good health. Implementing these targeted recommendations will help optimize your crop yield and establish sustainable management practices for long-term success.
