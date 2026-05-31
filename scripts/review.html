@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Anomaly Review</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0d0d0d; color: #ccc; font-family: monospace; font-size: 13px; }
+  h1 { padding: 20px; color: #aef; border-bottom: 1px solid #222; }
+  .frame-section { border-bottom: 2px solid #222; padding: 20px; }
+  .frame-title { font-size: 15px; color: #8cf; margin-bottom: 14px; }
+  .panels { display: flex; gap: 16px; flex-wrap: wrap; }
+  .panel { flex: 1 1 300px; min-width: 0; }
+  .panel-label { color: #666; margin-bottom: 6px; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; }
+  .panel img, .panel canvas { width: 100%; border: 1px solid #333; border-radius: 4px; display: block; }
+  .splat-wrap { width: 100%; aspect-ratio: 16/9; position: relative; border: 1px solid #333; border-radius: 4px; overflow: hidden; background: #111; }
+  .splat-wrap iframe { width: 100%; height: 100%; border: none; }
+  .no-anomaly { color: #444; font-style: italic; padding: 8px 0; }
+  .legend { display: flex; gap: 16px; padding: 12px 20px; border-bottom: 1px solid #222; }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .swatch { width: 12px; height: 12px; border-radius: 50%; }
+  #status { padding: 20px; color: #fa0; }
+</style>
+</head>
+<body>
+
+<h1>Anomaly Detection Review</h1>
+<div class="legend">
+  <div class="legend-item"><div class="swatch" style="background:#00ff88"></div> weed</div>
+  <div class="legend-item"><div class="swatch" style="background:#ffcc00"></div> dry_spot</div>
+  <div class="legend-item"><div class="swatch" style="background:#ff4444"></div> pest</div>
+</div>
+<div id="status">Loading data...</div>
+<div id="root"></div>
+
+<script>
+const TYPE_COLOR = { weed: '#00ff88', dry_spot: '#ffcc00', pest: '#ff4444' };
+
+// Resolve paths relative to this HTML file's location (scripts/).
+// anomalies.json is in frontend/public/, manifest is in scripts/frames/.
+const ANOMALIES_PATH = '/frontend/public/anomalies.json';
+const MANIFEST_PATH  = '/scripts/frames/manifest.json';
+
+async function loadJSON(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(`Failed to load ${path}: ${r.status}`);
+  return r.json();
+}
+
+function drawAnnotated(imgEl, anomaliesForFrame, imgW, imgH) {
+  const canvas = document.createElement('canvas');
+  canvas.width  = imgW;
+  canvas.height = imgH;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(imgEl, 0, 0, imgW, imgH);
+
+  for (const a of anomaliesForFrame) {
+    const b = a.bbox_px;
+    const color = TYPE_COLOR[a.type] || '#fff';
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    // Dotted red line
+    ctx.setLineDash([6, 4]);
+    ctx.strokeRect(b.x1, b.y1, b.x2 - b.x1, b.y2 - b.y1);
+    ctx.setLineDash([]);
+
+    // Label
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(b.x1, b.y1 - 18, 72, 18);
+    ctx.fillStyle = color;
+    ctx.font = 'bold 12px monospace';
+    ctx.fillText(a.type.toUpperCase(), b.x1 + 4, b.y1 - 4);
+  }
+  return canvas;
+}
+
+function makeSplatViewer(entry) {
+  const p = entry.position;
+  const q = entry.quaternion;
+  const params = new URLSearchParams({
+    cx: p[0], cy: p[1], cz: p[2],
+    qx: q[0], qy: q[1], qz: q[2], qw: q[3],
+    fov: entry.fov,
+  });
+  const url = `http://localhost:5173/?${params}`;
+
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;';
+
+  const btn = document.createElement('a');
+  btn.href = url;
+  btn.target = '_blank';
+  btn.textContent = 'Open 3D View';
+  btn.style.cssText = `
+    background: rgba(0,180,255,0.12);
+    border: 1px solid rgba(0,180,255,0.4);
+    color: #4af;
+    font-family: monospace;
+    font-size: 13px;
+    padding: 10px 22px;
+    border-radius: 6px;
+    text-decoration: none;
+    letter-spacing: 1px;
+  `;
+
+  const coords = document.createElement('div');
+  coords.style.cssText = 'color:#444;font-size:10px;font-family:monospace;text-align:center;';
+  coords.textContent = `pos [${p.map(v=>v.toFixed(3)).join(', ')}]`;
+
+  wrap.appendChild(btn);
+  wrap.appendChild(coords);
+  return wrap;
+}
+
+async function build() {
+  const status = document.getElementById('status');
+  const root   = document.getElementById('root');
+
+  let anomalies, manifest;
+  try {
+    [anomalies, manifest] = await Promise.all([
+      loadJSON(ANOMALIES_PATH),
+      loadJSON(MANIFEST_PATH),
+    ]);
+  } catch(e) {
+    status.textContent = `Error: ${e.message}`;
+    return;
+  }
+
+  // Group anomalies by frame filename
+  const byFrame = {};
+  for (const a of anomalies) {
+    (byFrame[a.frame] = byFrame[a.frame] || []).push(a);
+  }
+
+  status.textContent = `${anomalies.length} anomalies across ${manifest.frames.length} frames`;
+
+  for (const entry of manifest.frames) {
+    const frameFile = entry.frame;
+    const framePath = `/scripts/frames/${frameFile}`;
+    const frameAnomalies = byFrame[frameFile] || [];
+
+    const section = document.createElement('div');
+    section.className = 'frame-section';
+
+    const title = document.createElement('div');
+    title.className = 'frame-title';
+    title.textContent = `${frameFile}  (pass: ${entry.pass || '?'})  —  ${frameAnomalies.length} anomaly/anomalies`;
+    section.appendChild(title);
+
+    const panels = document.createElement('div');
+    panels.className = 'panels';
+
+    // --- Panel 1: Original PNG ---
+    const p1 = document.createElement('div');
+    p1.className = 'panel';
+    p1.innerHTML = '<div class="panel-label">1. Original</div>';
+    const origImg = document.createElement('img');
+    origImg.src = framePath;
+    origImg.alt = frameFile;
+    p1.appendChild(origImg);
+    panels.appendChild(p1);
+
+    // --- Panel 2: Annotated PNG (drawn after original loads) ---
+    const p2 = document.createElement('div');
+    p2.className = 'panel';
+    p2.innerHTML = '<div class="panel-label">2. Bounding Boxes</div>';
+    const annotCanvas = document.createElement('canvas');
+    annotCanvas.style.cssText = 'width:100%;border:1px solid #333;border-radius:4px;display:block;';
+
+    if (frameAnomalies.length === 0) {
+      const msg = document.createElement('div');
+      msg.className = 'no-anomaly';
+      msg.textContent = 'No anomalies detected';
+      p2.appendChild(msg);
+    } else {
+      origImg.addEventListener('load', () => {
+        const drawn = drawAnnotated(origImg, frameAnomalies, origImg.naturalWidth, origImg.naturalHeight);
+        drawn.style.cssText = 'width:100%;border:1px solid #333;border-radius:4px;display:block;';
+        p2.appendChild(drawn);
+      });
+    }
+    panels.appendChild(p2);
+
+    // --- Panel 4: Processed image Gemini actually saw ---
+    const p4 = document.createElement('div');
+    p4.className = 'panel';
+    p4.innerHTML = '<div class="panel-label">4. What Gemini Saw</div>';
+    const procImg = document.createElement('img');
+    procImg.src = `/scripts/frames_processed/${frameFile}?t=${Date.now()}`;
+    procImg.alt = 'processed';
+    procImg.onerror = () => { p4.innerHTML += '<div class="no-anomaly">Not generated yet — run detect.py first</div>'; };
+    p4.appendChild(procImg);
+    panels.appendChild(p4);
+
+    // --- Panel 3: 3D viewer at camera position ---
+    const p3 = document.createElement('div');
+    p3.className = 'panel';
+    p3.innerHTML = '<div class="panel-label">3. 3D View (frontend:5173)</div>';
+    const wrap = document.createElement('div');
+    wrap.className = 'splat-wrap';
+    wrap.appendChild(makeSplatViewer(entry));
+    p3.appendChild(wrap);
+
+    panels.appendChild(p3);
+
+    section.appendChild(panels);
+
+    // Anomaly table
+    if (frameAnomalies.length > 0) {
+      const table = document.createElement('table');
+      table.style.cssText = 'margin-top:12px;border-collapse:collapse;width:100%;font-size:11px;';
+      table.innerHTML = `<tr style="color:#666;border-bottom:1px solid #222">
+        <th style="text-align:left;padding:4px 8px">ID</th>
+        <th style="text-align:left;padding:4px 8px">Type</th>
+        <th style="text-align:left;padding:4px 8px">Bbox (px)</th>
+        <th style="text-align:left;padding:4px 8px">World pos</th>
+      </tr>`;
+      for (const a of frameAnomalies) {
+        const b = a.bbox_px;
+        const p = a.position.map(v => v.toFixed(3));
+        const color = TYPE_COLOR[a.type] || '#fff';
+        const tr = document.createElement('tr');
+        tr.style.borderBottom = '1px solid #1a1a1a';
+        tr.innerHTML = `
+          <td style="padding:4px 8px;color:#888">${a.id}</td>
+          <td style="padding:4px 8px;color:${color};font-weight:bold">${a.type}</td>
+          <td style="padding:4px 8px;color:#aaa">(${b.x1},${b.y1}) → (${b.x2},${b.y2})</td>
+          <td style="padding:4px 8px;color:#aaa">[${p.join(', ')}]</td>
+        `;
+        table.appendChild(tr);
+      }
+      section.appendChild(table);
+    }
+
+    root.appendChild(section);
+  }
+}
+
+build();
+</script>
+</body>
+</html>

@@ -41,6 +41,36 @@ viewer
   .then(() => {
     viewer.start();
     (window as any)._splatLoaded = true;
+
+    // If loaded inside the review iframe, teleport camera to the frame position
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('cx')) {
+      import('three').then(({ Quaternion, Vector3, Euler }) => {
+        const px = parseFloat(params.get('cx')!);
+        const py = parseFloat(params.get('cy')!);
+        const pz = parseFloat(params.get('cz')!);
+        const qx = parseFloat(params.get('qx')!);
+        const qy = parseFloat(params.get('qy')!);
+        const qz = parseFloat(params.get('qz')!);
+        const qw = parseFloat(params.get('qw')!);
+
+        const cam = viewer.camera;
+        cam.position.set(px, py, pz);
+        cam.quaternion.set(qx, qy, qz, qw);
+        cam.updateMatrixWorld();
+
+        // Derive a lookAt target: 2 units ahead along camera -Z
+        const forward = new Vector3(0, 0, -2).applyQuaternion(
+          new Quaternion(qx, qy, qz, qw)
+        );
+        cam.lookAt(px + forward.x, py + forward.y, pz + forward.z);
+      });
+
+      // Hide the React UI overlay so only the splat is visible
+      const reactRoot = document.getElementById('root');
+      if (reactRoot) reactRoot.style.display = 'none';
+    }
+
     window.dispatchEvent(new CustomEvent('splat:loaded'));
   })
   .catch((err: unknown) => {
