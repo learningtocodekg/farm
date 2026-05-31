@@ -304,27 +304,48 @@ export default function Overlay() {
 
     const targetPt = row === 'left' ? leftPt : rightPt;
 
-    // Camera sits beside the target row, offset 3 units away on the outside
-    // perpXZ points right→left, so:
-    //   left row camera: target + (-perpXZ * 3)  → sits on the right side, looks left
-    //   right row camera: target + (+perpXZ * 3) → sits on the left side, looks right
-    const outsideDir = row === 'left' ? perpXZ.clone().negate() : perpXZ.clone();
-    const startY = groundY - 2;
-    const camPos = targetPt.clone().addScaledVector(outsideDir, 3);
-    camPos.y = startY;
+    // For left row: camera sits outside the left row (on the opposite side from right row), looks inward
+    // For right row: mirror the left camera position across the flight line center to the other side
+    const viewer_ = getViewer();
+    let camPos: THREE.Vector3;
+    if (row === 'right' && viewer_) {
+      // Reflect current camera XZ across the flight line midpoint onto the right side
+      const midPt = leftPt.clone().add(rightPt).multiplyScalar(0.5);
+      const cur = viewer_.camera.position;
+      // Component of current cam position along perpXZ (left direction)
+      const curPerpDist = (cur.x - midPt.x) * perpXZ.x + (cur.z - midPt.z) * perpXZ.z;
+      // Mirror: subtract twice the perp component to flip to the other side
+      camPos = new THREE.Vector3(
+        cur.x - 2 * curPerpDist * perpXZ.x,
+        cur.y,
+        cur.z - 2 * curPerpDist * perpXZ.z,
+      );
+    } else {
+      // Left row: sit 3 units to the right of the left row (outside), looking left
+      const outsideDir = perpXZ.clone().negate(); // points right (away from left row)
+      const startY = groundY - 2;
+      camPos = targetPt.clone().addScaledVector(outsideDir, 3);
+      camPos.y = startY;
+    }
 
-    // lookDir: from camera toward the target row
-    const lookDir = outsideDir.clone().negate();
-    const lookTarget = camPos.clone().addScaledVector(lookDir, 10);
+    // lookDir: horizontal vector from camera toward the target crop row
+    const lookDir = targetPt.clone().sub(camPos).setY(0).normalize();
+
+    // Build quaternion directly from axes — avoids lookAt ambiguity with flipped up vector.
+    // In this scene cameraUp=[0,-1,0], so "screen up" is world -Y.
+    // Camera axes: forward=lookDir, up=(0,-1,0), right = up × forward (left-hand with flipped Y)
+    const worldUp = new THREE.Vector3(0, -1, 0);
+    const right = new THREE.Vector3().crossVectors(worldUp, lookDir).normalize();
+    const camUp = new THREE.Vector3().crossVectors(lookDir, right).normalize();
+    const rotMat = new THREE.Matrix4().makeBasis(right, camUp, lookDir.clone().negate());
+    const targetQuat = new THREE.Quaternion().setFromRotationMatrix(rotMat);
 
     const applyCameraPos = () => {
       if (viewer.controls) viewer.controls.enabled = false;
       viewer.camera.position.copy(camPos);
-      viewer.camera.up.set(0, -1, 0);
-      viewer.camera.lookAt(lookTarget);
+      viewer.camera.quaternion.copy(targetQuat);
       viewer.camera.updateProjectionMatrix();
       viewer.camera.updateMatrixWorld();
-      console.log('[AngleMode] row:', row, '| quat after apply:', viewer.camera.quaternion.w.toFixed(4), viewer.camera.quaternion.x.toFixed(4), viewer.camera.quaternion.y.toFixed(4), viewer.camera.quaternion.z.toFixed(4));
     };
 
     // Apply twice: once now, once next frame — viewer render loop can overwrite the first
@@ -402,9 +423,12 @@ export default function Overlay() {
           cam.position.x += trueFlightXZ.x * dir * 0.1;
           cam.position.z += trueFlightXZ.z * dir * 0.1;
         }
-        // After moving, keep looking at the row
-        cam.up.set(0, -1, 0);
-        cam.lookAt(cam.position.clone().addScaledVector(lookDir, 10));
+        // After moving, snap back to looking at the row using the same matrix approach
+        const ld = targetPt.clone().sub(cam.position).setY(0).normalize();
+        const wu = new THREE.Vector3(0, -1, 0);
+        const r = new THREE.Vector3().crossVectors(wu, ld).normalize();
+        const u = new THREE.Vector3().crossVectors(ld, r).normalize();
+        cam.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(r, u, ld.clone().negate()));
       } else if (isRotate) {
         // Free rotation using Euler — pitch on local X, yaw on world Y
         const ROTATE_SPEED = 0.03;
