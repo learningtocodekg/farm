@@ -11,6 +11,8 @@ const viewer = new GS3D.Viewer({
   cameraUp: [0, -1, 0],
   initialCameraPosition: [0, -1, 5],
   initialCameraLookAt: [0, 0, 0],
+  // allows toDataURL() to read back the rendered frame
+  rendererParams: { preserveDrawingBuffer: true },
   // quality settings
   antialiased: true,
   gpuAcceleratedSort: false,
@@ -26,8 +28,12 @@ const viewer = new GS3D.Viewer({
 
 (window as any).gsplatViewer = viewer;
 
+const splatFile = new URLSearchParams(window.location.search).get('scene') === 'clean'
+  ? '/scene_clean.ply'
+  : '/scene.ply';
+
 viewer
-  .addSplatScene('/scene.ply', {
+  .addSplatScene(splatFile, {
     splatAlphaRemovalThreshold: 1,
     showLoadingUI: false,
     progressiveLoad: false,

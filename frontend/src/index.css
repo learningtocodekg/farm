@@ -11,7 +11,7 @@ html, body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: #0a0b0d;
+  background: #f9f9f9;
 }
 
 #root {
@@ -21,8 +21,8 @@ html, body {
   height: 100%;
   overflow: hidden;
   background: transparent;
-  color: #e2e8f0;
-  font-family: system-ui, 'Segoe UI', sans-serif;
+  color: #1b1b1b;
+  font-family: 'Hanken Grotesk', system-ui, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -85,3 +85,10 @@ html, body {
   background: #22c55e;
   box-shadow: 0 0 0 2px rgba(255,255,255,0.25), 0 0 12px rgba(34,197,94,0.7);
 }
+
+/* Problem markers (weed, pest, sprinkler) */
+@keyframes problem-pulse-ring {
+  0%   { transform: translate(-50%, -50%) scale(0.3); opacity: 0.9; }
+  100% { transform: translate(-50%, -50%) scale(3.2); opacity: 0; }
+}
+

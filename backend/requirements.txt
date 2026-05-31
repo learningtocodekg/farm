@@ -6,3 +6,6 @@ httpx
 python-multipart
 google-adk
 python-dotenv
+plyfile
+numpy
+opencv-python
