@@ -302,40 +302,29 @@ export default function Overlay() {
     // Flight direction (along aisle) = perpXZ × worldUp — guaranteed orthogonal
     const trueFlightXZ = new THREE.Vector3().crossVectors(perpXZ, new THREE.Vector3(0, 1, 0)).normalize();
 
-    // Camera starts at midpoint between the rows, pulled back slightly from the target row
-    const targetPt  = row === 'left' ? leftPt  : rightPt;
-    // "Behind" the camera = opposite side of target row from camera
-    // Camera is between the rows, so for left row: camera is on the right side of left row
-    // i.e. camera.x = targetPt.x + perpXZ * offset (pointing away from target toward other row)
-    const pullDir = row === 'left'
-      ? perpXZ.clone().negate()   // camera is to the right of the left row (toward center)
-      : perpXZ.clone();           // camera is to the left of the right row (toward center)
+    const targetPt = row === 'left' ? leftPt : rightPt;
 
-    const startY = groundY - 2;  // 2 units above ground (negative = up in this scene)
+    // midpoint between the two rows — camera always sits here
+    const midPt = leftPt.clone().add(rightPt).multiplyScalar(0.5);
+    const startY = groundY - 2;
 
-    const camPos = new THREE.Vector3(
-      targetPt.x + pullDir.x * 2,
-      startY,
-      targetPt.z + pullDir.z * 2,
-    );
+    const camPos = new THREE.Vector3(midPt.x, startY, midPt.z);
 
-    // lookAt: look from camera position toward target, same Y (level horizontal view)
-    // camera.up = (0,-1,0) matches the splat viewer's cameraUp setting
+    // lookDir: perpXZ goes right→left.
+    // Left row: look toward left (+perpXZ). Right row: look toward right (-perpXZ).
+    const lookDir = row === 'left' ? perpXZ.clone() : perpXZ.clone().negate();
+    const lookTarget = camPos.clone().addScaledVector(lookDir, 10);
+
+    if (viewer.controls) {
+      viewer.controls.enabled = false;
+      // Reset OrbitControls internal target so it stops fighting our camera position
+      if (viewer.controls.target) viewer.controls.target.copy(lookTarget);
+    }
     viewer.camera.position.copy(camPos);
     viewer.camera.up.set(0, -1, 0);
-    viewer.camera.lookAt(new THREE.Vector3(targetPt.x, camPos.y, targetPt.z));
+    viewer.camera.lookAt(lookTarget);
     viewer.camera.updateProjectionMatrix();
     viewer.camera.updateMatrixWorld();
-
-    // Log for debugging
-    console.log('[AngleMode] row:', row);
-    console.log('[AngleMode] groundY:', groundY);
-    console.log('[AngleMode] perpXZ:', perpXZ);
-    console.log('[AngleMode] trueFlightXZ:', trueFlightXZ);
-    console.log('[AngleMode] camPos:', camPos);
-    console.log('[AngleMode] targetPt:', targetPt);
-    console.log('[AngleMode] cam.up after set:', viewer.camera.up);
-    console.log('[AngleMode] cam.quaternion:', viewer.camera.quaternion);
 
     setAngleRow(row);
     setLiveHeight(viewer.camera.position.y);
@@ -355,8 +344,8 @@ export default function Overlay() {
         guideObjectsRef.current.push(line);
       };
 
-      const leftColor  = row === 'left'  ? 0x00ffcc : 0x006655;
-      const rightColor = row === 'right' ? 0xc084fc : 0x442266;
+      const leftColor  = 0x00ffcc;  // teal — always visible
+      const rightColor = 0xc084fc;  // purple — always visible
 
       // Lines along the flight direction at each crop row
       addLine(
@@ -382,42 +371,39 @@ export default function Overlay() {
       );
     }
 
-    // W/S: move up/down (change Y — more negative = higher in this scene)
-    // A/D: move along the flight line direction (forward/back along the aisle)
-    // Y/U: zoom in/out
-    // After every move, re-apply lookAt so camera stays locked on the row
-    const onKey = (e: KeyboardEvent) => {
-      const key = e.key.toLowerCase();
-      if (!['w', 's', 'a', 'd', 'y', 'u'].includes(key)) return;
-      e.preventDefault();
+    // Mutable state shared between key handler and render loop
+    const state = {
+      pos: camPos.clone(),
+      fov: (viewer.camera as THREE.PerspectiveCamera).fov,
+    };
+
+    const applyCamera = () => {
       const v = getViewer();
       if (!v) return;
       const cam = v.camera as THREE.PerspectiveCamera;
-      if (key === 'w') {
-        cam.position.y -= 0.1;  // more negative = higher
-      } else if (key === 's') {
-        cam.position.y += 0.1;  // more positive = lower
-      } else if (key === 'a' || key === 'd') {
-        // Move along the aisle (flight line direction, XZ only)
-        const dir = key === 'a' ? 1 : -1;
-        cam.position.x += trueFlightXZ.x * dir * 0.1;
-        cam.position.z += trueFlightXZ.z * dir * 0.1;
-      } else {
-        cam.fov = Math.max(5, Math.min(120, cam.fov + (key === 'u' ? 2 : -2)));
-        cam.updateProjectionMatrix();
-      }
+      if (v.controls) v.controls.enabled = false;
+      cam.position.copy(state.pos);
+      cam.fov = state.fov;
       cam.up.set(0, -1, 0);
-      cam.lookAt(new THREE.Vector3(targetPt.x, cam.position.y, targetPt.z));
+      cam.lookAt(state.pos.clone().addScaledVector(lookDir, 10));
       cam.updateProjectionMatrix();
       cam.updateMatrixWorld();
     };
 
+    const onKey = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase();
+      if (!['w', 's', 'a', 'd', 'y', 'u'].includes(key)) return;
+      e.preventDefault();
+      if (key === 'w') state.pos.y -= 0.1;
+      else if (key === 's') state.pos.y += 0.1;
+      else if (key === 'a') { state.pos.x += trueFlightXZ.x * 0.1; state.pos.z += trueFlightXZ.z * 0.1; }
+      else if (key === 'd') { state.pos.x -= trueFlightXZ.x * 0.1; state.pos.z -= trueFlightXZ.z * 0.1; }
+      else if (key === 'y') state.fov = Math.max(5,  state.fov - 2);
+      else if (key === 'u') state.fov = Math.min(120, state.fov + 2);
+    };
+
     const onWheel = (e: WheelEvent) => {
-      const v = getViewer();
-      if (!v) return;
-      const cam = v.camera as THREE.PerspectiveCamera;
-      cam.fov = Math.max(5, Math.min(120, cam.fov + e.deltaY * 0.05));
-      cam.updateProjectionMatrix();
+      state.fov = Math.max(5, Math.min(120, state.fov + e.deltaY * 0.05));
     };
 
     window.addEventListener('keydown', onKey);
@@ -425,10 +411,10 @@ export default function Overlay() {
     wsHandlerRef.current = onKey;
     wheelHandlerRef.current = onWheel;
 
-    // Poll camera Y position (negative Y = higher in this scene)
+    // Render loop: re-apply every frame so the viewer can't overwrite our camera
     const poll = () => {
-      const v = getViewer();
-      if (v) setLiveHeight(v.camera.position.y);
+      applyCamera();
+      setLiveHeight(state.pos.y);
       rafRef.current = requestAnimationFrame(poll);
     };
     rafRef.current = requestAnimationFrame(poll);
@@ -478,11 +464,22 @@ export default function Overlay() {
 
     if (angleRow === 'left') {
       setCalib(c => ({ ...c, leftCamera: snap, flightY: liveHeight }));
-      // Move to right row — re-enter angle mode for right crop
       const c = calibRef.current;
+      console.log('[confirmAngle] switching to right row');
+      console.log('[confirmAngle] flightStart:', c.flightStart);
+      console.log('[confirmAngle] leftCrop:', c.leftCrop);
+      console.log('[confirmAngle] rightCrop:', c.rightCrop);
       if (c.flightStart && c.leftCrop && c.rightCrop) {
-        stopAngleMode();
+        // Remove old key/wheel listeners and guide objects but keep controls disabled
+        if (wsHandlerRef.current) { window.removeEventListener('keydown', wsHandlerRef.current); wsHandlerRef.current = null; }
+        if (wheelHandlerRef.current) { window.removeEventListener('wheel', wheelHandlerRef.current); wheelHandlerRef.current = null; }
+        if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+        const v = getViewer();
+        guideObjectsRef.current.forEach(o => { v?.threeScene?.remove(o); });
+        guideObjectsRef.current = [];
         enterAngleMode(c.flightStart, c.leftCrop, c.rightCrop, 'right');
+      } else {
+        console.warn('[confirmAngle] missing calibration data — cannot enter right row mode');
       }
     } else {
       setCalib(c => ({ ...c, rightCamera: snap, flightY: liveHeight }));
