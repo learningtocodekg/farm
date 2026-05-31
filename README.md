@@ -1,8 +1,10 @@
-# HarvestEye
+# FarmOS
 
 > **QuackHacks 2026** — Precision agriculture platform powered by Gemini AI and real-world farm data.
 
-HarvestEye is an intelligent farm monitoring and analysis system built on **real data collected in person at multiple farms**. It combines a **photorealistic 3D Gaussian Splatting viewer** with a **multi-agent Gemini AI backend**, live **Firebase sensor data**, and interactive **soil heatmaps** to give farmers actionable insights on crop health, weed threats, soil conditions, and environmental status.
+FarmOS gives farmers AI-powered, real-time visibility into crop health, weed threats, and soil conditions — rendered inside a photorealistic 3D reconstruction of their actual farm.
+
+We went in person to real farms to capture on-site data. Using 3D Gaussian Splatting, we simulate drone flight paths through the 3D environment, extract frames, and feed them into a multi-stage Gemini pipeline: first to detect soil regions, then to identify weeds and anomalies within those regions. By combining saved 3D drone coordinates with the pixel locations Gemini flags, we place problem markers at exact real-world positions inside the 3D viewer — letting farmers (and AI agents) digitally traverse their fields before ever stepping outside.
 
 ---
 
@@ -85,7 +87,7 @@ An optional in-app calibration mode lets you define a drone flight path directly
 | **Icons** | Lucide React |
 | **Database** | Firebase Firestore (real-time sensor + event data) |
 | **Backend** | FastAPI (Python), Uvicorn |
-| **AI Models** | Google Gemini 2.5 Flash (analysis + reports), Gemini 2.0 Flash (agents) |
+| **AI Models** | Google Gemini 2.5 Flash (analysis + reports), Gemini 2.0 Flash + 3.0 Flash (agents) |
 | **Agent Framework** | Google ADK (Agents Development Kit) |
 | **Image Processing** | OpenCV, Pillow, NumPy |
 | **3D File Handling** | plyfile (PLY point cloud format) |
