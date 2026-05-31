@@ -150,13 +150,10 @@ def unproject_pixel(px: float, py: float, img_w: int, img_h: int, entry: dict) -
     mag = math.sqrt(sum(v**2 for v in ray_dir)) or 1.0
     ray_dir = [v / mag for v in ray_dir]
 
-    # Intersect with the horizontal ground plane at Y = cam_pos.Y.
-    # The camera looks nearly horizontally at the soil, so the vertical crop-row
-    # plane intersection gives bad Y values. The soil surface is at the same Y
-    # as the camera position for each pass (left Y ≈ -1.618, right Y ≈ -1.084).
-    ground_y = cam_pos[1]
-    # Plane: Y = ground_y  ->  normal = (0,1,0), d = ground_y
-    # t = (ground_y - cam_y) / ray_dir_y
+    # Intersect with the ground plane at Y = 0 (world ground in this scene).
+    # Camera Y is negative (above ground in the inverted-Y coordinate system),
+    # so we always project down to Y=0, not to the camera's own Y level.
+    ground_y = 0.0
     if abs(ray_dir[1]) < 1e-9:
         # Ray is nearly horizontal — fall back to cropPlane intersection
         plane = entry["cropPlane"]
@@ -181,6 +178,16 @@ def unproject_pixel(px: float, py: float, img_w: int, img_h: int, entry: dict) -
 
     return [cam_pos[i] + t * ray_dir[i] for i in range(3)]
 
+
+# ---------------------------------------------------------------------------
+# Ground-truth calibration offset for left-camera frames.
+# Measured by placing a point on the real weed in the 3-D viewer and comparing
+# it to where unproject_pixel put the same detection before the fix.
+# Apply this XZ shift to any position that comes from a left-angle frame so
+# the markers land on the actual plants instead of floating in air.
+# If the drone flight path or calibration changes, re-measure and update these.
+LEFT_CAMERA_OFFSET_X = 1.228   # real_x - raw_x  (-0.013 - (-1.241))
+LEFT_CAMERA_OFFSET_Z = -5.132  # real_z - raw_z  (-1.738 - 3.394)
 
 # ---------------------------------------------------------------------------
 # Main
@@ -332,6 +339,10 @@ def main():
                 cx = (full_x1 + full_x2) / 2
                 cy = (full_y1 + full_y2) / 2
                 world_pos = unproject_pixel(cx, cy, img_w, img_h, entry)
+                # Apply ground-truth calibration offset for left-camera frames
+                if "left" in entry["frame"]:
+                    world_pos[0] += LEFT_CAMERA_OFFSET_X
+                    world_pos[2] += LEFT_CAMERA_OFFSET_Z
 
                 full_box = {"x1": full_x1, "y1": full_y1, "x2": full_x2, "y2": full_y2}
                 all_anomalies.append({
