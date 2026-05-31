@@ -2,8 +2,11 @@ import { useState } from 'react';
 import Overlay from './Overlay';
 import WeedMarkers from './WeedMarkers';
 import ReviewPage from './ReviewPage';
+import DroneScannerDemo from './components/DroneScannerDemo';
 
 export default function App() {
+  const [scannerOpen, setScannerOpen] = useState(false);
+
   if (window.location.pathname === '/review') {
     return <ReviewPage />;
   }
@@ -30,7 +33,7 @@ export default function App() {
       {scannerOpen && (
         <div
           data-ui="true"
-          style={{ position: 'fixed', inset: 0, zIndex: 50, background: '#0a0b0d' }}
+          style={{ position: 'fixed', inset: 0, zIndex: 50, pointerEvents: 'none' }}
         >
           <DroneScannerDemo />
           <button

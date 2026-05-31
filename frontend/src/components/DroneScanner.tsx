@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useFrame, useThree } from '@react-three/fiber';
+import { useFrame } from '@react-three/fiber';
 import { Html, Line } from '@react-three/drei';
 import * as THREE from 'three';
 
@@ -121,8 +121,6 @@ export function DroneScanner({
   onScanComplete,
   onCaptureFrame,
 }: DroneScannerProps) {
-  const { gl, scene } = useThree();
-
   const oblH = obliqueHeight ?? altitude;
 
   const [isScanning, setIsScanning] = useState(false);
@@ -164,45 +162,79 @@ export function DroneScanner({
 
 
   // ── Core render helper ────────────────────────────────────────────────────
+  // Renders from the GS3D viewer's camera/renderer so the splat appears in captures.
 
   const captureView = useCallback(
     (pos: THREE.Vector3, lookAtTarget: THREE.Vector3 | null, fov: number): HTMLCanvasElement => {
-      droneCamera.fov    = fov;
-      droneCamera.aspect = 1;
-      droneCamera.updateProjectionMatrix();
-      droneCamera.position.copy(pos);
-
-      if (lookAtTarget) {
-        droneCamera.up.set(0, 1, 0);
-        droneCamera.lookAt(lookAtTarget);
-      } else {
-        droneCamera.rotation.set(-Math.PI / 2, 0, 0);
-      }
-      droneCamera.updateMatrixWorld(true);
-      scene.updateMatrixWorld(true);
-
-      const savedTarget    = gl.getRenderTarget();
-      const savedAutoClear = gl.autoClear;
-      gl.autoClear = true;
-      gl.setRenderTarget(null);
-      gl.render(scene, droneCamera);
-      gl.setRenderTarget(savedTarget);
-      gl.autoClear = savedAutoClear;
-
-      // Copy from the WebGL canvas (preserveDrawingBuffer:true) into a square 2D canvas.
-      const src  = gl.domElement;
-      const size = Math.min(src.width, src.height);
       const offscreen = document.createElement('canvas');
       offscreen.width  = CAPTURE_RES;
       offscreen.height = CAPTURE_RES;
+
+      const viewer = (window as any).gsplatViewer;
+      if (!viewer?.camera || !viewer?.renderer) return offscreen;
+
+      const cam      = viewer.camera as THREE.PerspectiveCamera;
+      const renderer = viewer.renderer as THREE.WebGLRenderer;
+
+      // Save full GS3D camera state
+      const savedPos    = cam.position.clone();
+      const savedQuat   = cam.quaternion.clone();
+      const savedUp     = cam.up.clone();
+      const savedFov    = cam.fov;
+      const savedAspect = cam.aspect;
+      const savedNear   = cam.near;
+      const savedFar    = cam.far;
+
+      // Position and FOV for this shot
+      cam.position.copy(pos);
+      cam.fov    = fov;
+      cam.aspect = 1;
+      cam.near   = 0.01;
+      cam.far    = 1000;
+      cam.updateProjectionMatrix();
+
+      if (lookAtTarget) {
+        // Oblique: keep GS3D's original up so splat billboards orient correctly
+        cam.up.copy(savedUp);
+        cam.lookAt(lookAtTarget);
+      } else {
+        // Nadir: camera is at negative Y, field is at Y≈0 — look toward +Y.
+        // Can't use lookAt because savedUp=(0,-1,0) is anti-parallel to +Y look dir
+        // (degenerate cross product → garbage orientation). Set rotation directly.
+        // Euler(π/2, 0, 0) rotates the default -Z forward to +Y.
+        cam.rotation.set(Math.PI / 2, 0, 0);
+      }
+      cam.updateMatrixWorld(true);
+
+      // Render ONLY splatMesh — threeScene contains GS3D helper overlays (blue circles)
+      const savedAutoClear = renderer.autoClear;
+      renderer.autoClear = true;
+      if (viewer.splatMesh) renderer.render(viewer.splatMesh, cam);
+      renderer.autoClear = savedAutoClear;
+
+      // Copy from the GS3D canvas into a square offscreen canvas
+      const src  = renderer.domElement;
+      const size = Math.min(src.width, src.height);
       offscreen.getContext('2d')!.drawImage(
         src,
         (src.width  - size) / 2, (src.height - size) / 2, size, size,
         0, 0, CAPTURE_RES, CAPTURE_RES,
       );
+
+      // Restore GS3D camera exactly
+      cam.position.copy(savedPos);
+      cam.quaternion.copy(savedQuat);
+      cam.up.copy(savedUp);
+      cam.fov    = savedFov;
+      cam.aspect = savedAspect;
+      cam.near   = savedNear;
+      cam.far    = savedFar;
+      cam.updateProjectionMatrix();
+      cam.updateMatrixWorld(true);
+
       return offscreen;
     },
-    [gl, scene, droneCamera],
+    [],
   );
 
   // ── 5-shot capture per waypoint ───────────────────────────────────────────
@@ -224,12 +256,13 @@ export function DroneScanner({
         imageDataUrl: captureView(pos, lookAt, fov).toDataURL('image/png'),
       });
 
+      // GS3D scene has cameraUp=[0,-1,0] so "above" the field is negative Y
       const views: Record<ViewName, CaptureView> = {
-        nadir: shoot(new THREE.Vector3(cx,             altitude, cz            ), null,   nadirFov),
-        north: shoot(new THREE.Vector3(cx,             oblH,     cz - horizDist), center, OBLIQUE_FOV),
-        south: shoot(new THREE.Vector3(cx,             oblH,     cz + horizDist), center, OBLIQUE_FOV),
-        east:  shoot(new THREE.Vector3(cx + horizDist, oblH,     cz            ), center, OBLIQUE_FOV),
-        west:  shoot(new THREE.Vector3(cx - horizDist, oblH,     cz            ), center, OBLIQUE_FOV),
+        nadir: shoot(new THREE.Vector3(cx,              -altitude, cz            ), null,   nadirFov),
+        north: shoot(new THREE.Vector3(cx,              -oblH,     cz - horizDist), center, OBLIQUE_FOV),
+        south: shoot(new THREE.Vector3(cx,              -oblH,     cz + horizDist), center, OBLIQUE_FOV),
+        east:  shoot(new THREE.Vector3(cx + horizDist,  -oblH,    cz            ), center, OBLIQUE_FOV),
+        west:  shoot(new THREE.Vector3(cx - horizDist,  -oblH,    cz            ), center, OBLIQUE_FOV),
       };
 
       // Restore nadir FOV so the footprint indicator stays calibrated
@@ -256,7 +289,7 @@ export function DroneScanner({
     setProgress(0);
     setIsScanning(true);
     const first = waypoints[0];
-    droneCamera.position.set(first.x, altitude, first.z);
+    droneCamera.position.set(first.x, -altitude, first.z);
     droneCamera.rotation.set(-Math.PI / 2, 0, 0);
     droneCamera.updateMatrixWorld(true);
     prevPosRef.current.copy(droneCamera.position);
@@ -293,28 +326,14 @@ export function DroneScanner({
     }
 
     if (phaseRef.current === 'settling') {
-      // Record when we first enter the settle phase
       if (settleStartRef.current < 0) settleStartRef.current = now;
-
-      // Pre-render each settling frame so the scene is stable before snapshot.
-      droneCamera.aspect = 1;
-      droneCamera.rotation.set(-Math.PI / 2, 0, 0);
-      droneCamera.updateMatrixWorld(true);
-      const savedTarget    = gl.getRenderTarget();
-      const savedAutoClear = gl.autoClear;
-      gl.autoClear = true;
-      gl.setRenderTarget(null);
-      gl.render(scene, droneCamera);
-      gl.setRenderTarget(savedTarget);
-      gl.autoClear = savedAutoClear;
-
       if (now - settleStartRef.current >= settleSeconds) phaseRef.current = 'capturing';
       return;
     }
 
     if (phaseRef.current === 'capturing') {
       const wp = waypoints[idx];
-      if (droneGroupRef.current) droneGroupRef.current.position.set(wp.x, altitude, wp.z);
+      if (droneGroupRef.current) droneGroupRef.current.position.set(wp.x, -altitude, wp.z);
 
       const result = doCapture(wp);
       capturesRef.current.push(result);
@@ -331,9 +350,9 @@ export function DroneScanner({
         return;
       }
 
-      droneCamera.position.set(wp.x, altitude, wp.z);
+      droneCamera.position.set(wp.x, -altitude, wp.z);
       prevPosRef.current.copy(droneCamera.position);
-      targetPosRef.current.set(waypoints[next].x, altitude, waypoints[next].z);
+      targetPosRef.current.set(waypoints[next].x, -altitude, waypoints[next].z);
       moveStartRef.current = now;
       phaseRef.current = 'moving';
 
@@ -387,16 +406,16 @@ export function DroneScanner({
         <mesh><boxGeometry args={[1.4, 0.3, 1.4]} /><meshBasicMaterial color="#00ff88" wireframe /></mesh>
         <mesh rotation={[0,  Math.PI/4, 0]}><boxGeometry args={[2.6, 0.08, 0.18]} /><meshBasicMaterial color="#00ff88" wireframe /></mesh>
         <mesh rotation={[0, -Math.PI/4, 0]}><boxGeometry args={[2.6, 0.08, 0.18]} /><meshBasicMaterial color="#00ff88" wireframe /></mesh>
-        <Line points={[new THREE.Vector3(0,0,0), new THREE.Vector3(0,-(altitude-0.1),0)]} color="#44ff88" lineWidth={1} />
-        <mesh position={[0,-(altitude-0.05),0]} rotation={[-Math.PI/2,0,0]}>
+        <Line points={[new THREE.Vector3(0,0,0), new THREE.Vector3(0,altitude-0.1,0)]} color="#44ff88" lineWidth={1} />
+        <mesh position={[0,altitude-0.05,0]} rotation={[-Math.PI/2,0,0]}>
           <planeGeometry args={[captureWidth,captureWidth]} />
           <meshBasicMaterial color="#ffff44" transparent opacity={0.08} side={THREE.DoubleSide} depthWrite={false} />
         </mesh>
         <Line
           points={[
-            new THREE.Vector3(-half,-(altitude-0.08),-half), new THREE.Vector3(half,-(altitude-0.08),-half),
-            new THREE.Vector3(half,-(altitude-0.08),half),   new THREE.Vector3(-half,-(altitude-0.08),half),
-            new THREE.Vector3(-half,-(altitude-0.08),-half),
+            new THREE.Vector3(-half,altitude-0.08,-half), new THREE.Vector3(half,altitude-0.08,-half),
+            new THREE.Vector3(half,altitude-0.08,half),   new THREE.Vector3(-half,altitude-0.08,half),
+            new THREE.Vector3(-half,altitude-0.08,-half),
           ]}
           color="#ffff44" lineWidth={1.5}
         />
